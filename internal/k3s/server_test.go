@@ -1,4 +1,7 @@
-package provider
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
+package k3s
 
 import (
 	"strings"

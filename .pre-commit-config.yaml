@@ -1,0 +1,21 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.3.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+  - repo: local
+    hooks:
+      - id: golangci-lint
+        name: GolangCI-Lint
+        entry: golangci-lint run -c .golangci.yml --fix
+        pass_filenames: false # needs to run on entire dir
+        language: system
+        types: [go]
+        files: \.go$
+        verbose: true

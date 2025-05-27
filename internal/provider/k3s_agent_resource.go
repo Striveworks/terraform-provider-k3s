@@ -1,4 +1,5 @@
 // Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
 
 package provider
 
@@ -19,46 +20,38 @@ import (
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
-var _ resource.ResourceWithConfigure = &K3sServerResource{}
+var _ resource.ResourceWithConfigure = &K3sAgentResource{}
 
-type K3sServerResource struct {
+type K3sAgentResource struct {
 	version *string
 }
 
-func NewK3sServerResource() resource.Resource {
-	return &K3sServerResource{}
-}
-
-// ServerClientModel describes the resource data model.
-type ServerClientModel struct {
+// AgentClientModel describes the resource data model.
+type AgentClientModel struct {
 	// Inputs
 	PrivateKey types.String `tfsdk:"private_key"`
 	User       types.String `tfsdk:"user"`
 	Host       types.String `tfsdk:"host"`
+	Server     types.String `tfsdk:"server"`
 	K3sConfig  types.String `tfsdk:"config"`
-	// Outputs
-	Id         types.String `tfsdk:"id"`
-	KubeConfig types.String `tfsdk:"kubeconfig"`
 	Token      types.String `tfsdk:"token"`
-	Active     types.Bool   `tfsdk:"active"`
+	// Outputs
+	Id     types.String `tfsdk:"id"`
+	Active types.Bool   `tfsdk:"active"`
 }
 
-func (s *ServerClientModel) sshClient() (ssh_client.SSHClient, error) {
+func (s *AgentClientModel) sshClient() (ssh_client.SSHClient, error) {
 	return ssh_client.NewSSHClient(fmt.Sprintf("%s:22", s.Host.ValueString()), s.User.ValueString(), s.PrivateKey.ValueString())
 }
 
 // Configure implements resource.ResourceWithConfigure.
-func (s *K3sServerResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	// TODO: Fix
-	// provider := req.ProviderData.(K3sProvider)
-	// if provider.Version != "" {
-	// 	s.version = &provider.Version
-	// }
+func (k *K3sAgentResource) Configure(context.Context, resource.ConfigureRequest, *resource.ConfigureResponse) {
+
 }
 
-// Create implements resource.ResourceWithImportState.
-func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var data ServerClientModel
+// Create implements resource.Resource.
+func (k *K3sAgentResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var data AgentClientModel
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -78,46 +71,51 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 		resp.Diagnostics.Append(fromError("Creating ssh config", err))
 		return
 	}
-	var config map[string]any
+
+	token := data.Token.ValueString()
+	server := fmt.Sprintf("https://%s:6443", data.Server.ValueString())
+
+	config := make(map[string]any)
 	if err := yaml.Unmarshal([]byte(data.K3sConfig.ValueString()), &config); err != nil {
 		resp.Diagnostics.Append(fromError("Creating k3s config", err))
 		return
 	}
 
-	server := k3s.NewK3sServerComponent(config, s.version)
+	config["token"] = token
+	config["server"] = server
 
-	if err := server.RunPreReqs(sshClient, logger); err != nil {
-		resp.Diagnostics.Append(fromError("Running k3s server prereqs", err))
+	agent := k3s.NewK3sAgentComponent(config, k.version)
+
+	if err := agent.RunPreReqs(sshClient, logger); err != nil {
+		resp.Diagnostics.Append(fromError("Running k3s agent prereqs", err))
 		return
 	}
 
-	if err := server.RunInstall(sshClient, logger); err != nil {
-		resp.Diagnostics.Append(fromError("Running k3s server prereqs", err))
+	if err := agent.RunInstall(sshClient, logger); err != nil {
+		resp.Diagnostics.Append(fromError("Running k3s agent install", err))
 		return
 	}
 
-	active, err := server.Status(sshClient)
+	active, err := agent.Status(sshClient)
 	if err != nil {
-		resp.Diagnostics.Append(fromError("Error retrieving server status", err))
+		resp.Diagnostics.Append(fromError("Error retrieving agent status", err))
 		return
 	}
 
-	// Set outputs
 	data.Active = types.BoolValue(active)
-	data.KubeConfig = types.StringValue(server.KubeConfig())
-	data.Token = types.StringValue(server.Token())
 	id, _ := uuid.GenerateUUID()
 	data.Id = types.StringValue(id)
 
-	tflog.Warn(ctx, "created a k3s server resource")
+	tflog.Warn(ctx, "created a k3s agent resource")
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
 }
 
-// Delete implements resource.ResourceWithImportState.
-func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var data ServerClientModel
+// Delete implements resource.Resource.
+func (k *K3sAgentResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data AgentClientModel
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
@@ -138,46 +136,25 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 		return
 	}
 
-	server := k3s.NewK3sServerComponent(nil, nil)
-	if err := server.RunUninstall(sshClient, logger); err != nil {
-		resp.Diagnostics.Append(fromError("Creating uninstall k3s", err))
+	agent := k3s.NewK3sAgentComponent(nil, nil)
+	if err := agent.RunUninstall(sshClient, logger); err != nil {
+		resp.Diagnostics.Append(fromError("Creating uninstall k3s-agent", err))
 		return
 	}
 }
 
-// Metadata implements resource.ResourceWithImportState.
-func (s *K3sServerResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_server"
+// Metadata implements resource.Resource.
+func (k *K3sAgentResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_agent"
 }
 
-// Read implements resource.ResourceWithImportState.
-func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var data ServerClientModel
+// Read implements resource.Resource.
+func (k *K3sAgentResource) Read(context.Context, resource.ReadRequest, *resource.ReadResponse) {
 
-	// Read Terraform state data into the model
-	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// k3sClient, err := NewK3sClient(data)
-	// if err != nil {
-	// 	resp.Diagnostics.Append(fromError("Creating ssh config", err))
-	// 	return
-	// }
-	// active, err := k3sClient.IsActive()
-	// if err != nil {
-	// 	resp.Diagnostics.Append(fromError("Error retrieving server status", err))
-	// 	return
-	// }
-	// data.Active = types.BoolValue(active && false)
-
-	// resp.Diagnostics.Append(req.State.Set(ctx, &data)...)
 }
 
-// Schema implements resource.ResourceWithImportState.
-func (s *K3sServerResource) Schema(context context.Context, resource resource.SchemaRequest, resp *resource.SchemaResponse) {
+// Schema implements resource.Resource.
+func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Creates a K3s Server
 Example:
@@ -195,8 +172,18 @@ resource "k3s_server" "main" {
   host        = "192.168.10.1"
   user        = "ubuntu"
   private_key = var.private_key_openssh
-  config      = data.k3s_server_config.server.yaml
-}`),
+  config      = data.k3s_config.server.yaml
+}
+
+resource "k3s_agent" "worker" {
+  host        = "192.168.10.2"
+  user        = "ubuntu"
+  private_key = var.private_key_openssh
+  config      = data.k3s_config.server.yaml
+  server	  = "192.168.10.1"
+  token		  = k3s_server.main.token
+}
+`),
 
 		Attributes: map[string]schema.Attribute{
 			// Inputs
@@ -217,6 +204,15 @@ resource "k3s_server" "main" {
 				Optional:            true,
 				MarkdownDescription: "K3s server config",
 			},
+			"server": schema.StringAttribute{
+				Required:            true,
+				MarkdownDescription: "Server host used for joining nodes to the cluster",
+			},
+			"token": schema.StringAttribute{
+				Required:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Server token used for joining nodes to the cluster",
+			},
 			// Outputs
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -225,21 +221,7 @@ resource "k3s_server" "main" {
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
-			"kubeconfig": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "KubeConfig for the cluster",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
-			"token": schema.StringAttribute{
-				Computed:            true,
-				Sensitive:           true,
-				MarkdownDescription: "Server token used for joining nodes to the cluster",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
+
 			"active": schema.BoolAttribute{
 				Computed:            true,
 				MarkdownDescription: "The health of the server",
@@ -251,7 +233,36 @@ resource "k3s_server" "main" {
 	}
 }
 
-// Update implements resource.ResourceWithImportState.
-func (s *K3sServerResource) Update(context.Context, resource.UpdateRequest, *resource.UpdateResponse) {
-	panic("unimplemented")
+// Update implements resource.Resource.
+func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data ServerClientModel
+
+	// Read Terraform plan data into the model
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Let the k3sClient write the ssh outputs
+	// to the terraform logs
+	logger := func(out string) {
+		tflog.Warn(ctx, out)
+	}
+
+	sshClient, err := data.sshClient()
+	if err != nil {
+		resp.Diagnostics.Append(fromError("Creating ssh config", err))
+		return
+	}
+
+	agent := k3s.NewK3sAgentComponent(nil, nil)
+	if err := agent.RunUninstall(sshClient, logger); err != nil {
+		resp.Diagnostics.Append(fromError("Creating uninstall k3s", err))
+		return
+	}
+}
+
+func NewK3sAgentResource() resource.Resource {
+	return &K3sAgentResource{}
 }
