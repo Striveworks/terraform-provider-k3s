@@ -38,5 +38,7 @@ resource "k3s_server" "main" {
 
 ### Read-Only
 
+- `active` (Boolean) The health of the server
 - `id` (String) Id of the k3s server resource
 - `kubeconfig` (String) KubeConfig for the cluster
+- `token` (String, Sensitive) Server token used for joining nodes to the cluster

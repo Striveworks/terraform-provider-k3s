@@ -33,5 +33,4 @@ module "labels" {
   namespace   = "sw"
   name        = "main"
   environment = "os"
-  stage       = "userdata"
 }

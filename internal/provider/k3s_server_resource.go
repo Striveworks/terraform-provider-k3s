@@ -184,6 +184,21 @@ resource "k3s_server" "main" {
 ` + "```",
 
 		Attributes: map[string]schema.Attribute{
+			// Inputs
+			"private_key": schema.StringAttribute{
+				Sensitive:           true,
+				Required:            true,
+				MarkdownDescription: "Value of a privatekey used to auth",
+			},
+			"host": schema.StringAttribute{
+				Required:            true,
+				MarkdownDescription: "Hostname of the target server",
+			},
+			"user": schema.StringAttribute{
+				Required:            true,
+				MarkdownDescription: "Username of the target server",
+			},
+			// Outputs
 			"id": schema.StringAttribute{
 				Computed:            true,
 				MarkdownDescription: "Id of the k3s server resource",
@@ -205,19 +220,6 @@ resource "k3s_server" "main" {
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
-			},
-			"private_key": schema.StringAttribute{
-				Sensitive:           true,
-				Required:            true,
-				MarkdownDescription: "Value of a privatekey used to auth",
-			},
-			"host": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Hostname of the target server",
-			},
-			"user": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Username of the target server",
 			},
 			"active": schema.BoolAttribute{
 				Computed:            true,
