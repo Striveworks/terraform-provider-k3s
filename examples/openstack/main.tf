@@ -14,7 +14,7 @@ terraform {
 
 provider "k3s" {}
 
-data "k3s_server_config" "main" {
+data "k3s_config" "main" {
   config = yamlencode({
     "node-label" = ["foo=bar"]
   })

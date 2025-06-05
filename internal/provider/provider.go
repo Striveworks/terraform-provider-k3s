@@ -102,13 +102,14 @@ func (p *K3sProvider) Configure(ctx context.Context, req provider.ConfigureReque
 
 // DataSources defines the data sources implemented in the provider.
 func (p *K3sProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{NewK3sServerConfigDataSource}
+	return []func() datasource.DataSource{NewK3sConfigDataSource}
 }
 
 // Resources defines the resources implemented in the provider.
 func (p *K3sProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewK3sServerResource,
+		NewK3sAgentResource,
 	}
 }
 

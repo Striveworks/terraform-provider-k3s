@@ -50,6 +50,7 @@ func (s *ServerClientModel) sshClient() (ssh_client.SSHClient, error) {
 
 // Configure implements resource.ResourceWithConfigure.
 func (s *K3sServerResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	// TODO: Fix
 	// provider := req.ProviderData.(K3sProvider)
 	// if provider.Version != "" {
 	// 	s.version = &provider.Version
@@ -187,7 +188,7 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 		MarkdownDescription: `Creates a K3s Server
 Example:
 ` + TfMd(`
-data "k3s_server_config" "server" {
+data "k3s_config" "server" {
   data_dir = "/etc/k3s"
   config  = {
 	  "etcd-expose-metrics" = "" // flag for true

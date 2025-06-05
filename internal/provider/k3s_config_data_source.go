@@ -15,26 +15,26 @@ import (
 const DATA_DIR string = "/var/lib/rancher/k3s"
 const CONFIG_DIR string = "/etc/rancher/k3s"
 
-var _ datasource.DataSource = &K3sServerConfigDataSource{}
+var _ datasource.DataSource = &K3sConfigDataSource{}
 
-type K3sServerConfigDataSource struct {
+type K3sConfigDataSource struct {
 	Config  types.String `tfsdk:"config"`
 	DataDir types.String `tfsdk:"data_dir"`
 	Yaml    types.String `tfsdk:"yaml"`
 }
 
-func NewK3sServerConfigDataSource() datasource.DataSource {
-	return &K3sServerConfigDataSource{}
+func NewK3sConfigDataSource() datasource.DataSource {
+	return &K3sConfigDataSource{}
 }
 
 // Metadata implements datasource.DataSource.
-func (k *K3sServerConfigDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_server_config"
+func (k *K3sConfigDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_config"
 }
 
 // Read implements datasource.DataSource.
-func (k *K3sServerConfigDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	var data K3sServerConfigDataSource
+func (k *K3sConfigDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var data K3sConfigDataSource
 
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 
@@ -69,10 +69,10 @@ func (k *K3sServerConfigDataSource) Read(ctx context.Context, req datasource.Rea
 }
 
 // Schema implements datasource.DataSource.
-func (k *K3sServerConfigDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+func (k *K3sConfigDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "K3s Server configuration. Read more [here](https://docs.k3s.io/cli/server).\nExample:\n" + TfMd(`
-data "k3s_server_config" "server" {
+		MarkdownDescription: "K3s configuration. Read more [here](https://docs.k3s.io/cli/server).\nExample:\n" + TfMd(`
+data "k3s_config" "server" {
   data_dir = "/etc/k3s"
   config  = yamlencode({
 	  "etcd-expose-metrics" = "" // flag for true
