@@ -121,6 +121,11 @@ resource "k3s_agent" "worker" {
 				Optional:            true,
 				MarkdownDescription: "K3s server config",
 			},
+			"token": schema.StringAttribute{
+				Required:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Server token used for joining nodes to the cluster",
+			},
 			// Outputs
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -129,21 +134,7 @@ resource "k3s_agent" "worker" {
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
-			"kubeconfig": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "KubeConfig for the cluster",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
-			"token": schema.StringAttribute{
-				Computed:            true,
-				Sensitive:           true,
-				MarkdownDescription: "Server token used for joining nodes to the cluster",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
+
 			"active": schema.BoolAttribute{
 				Computed:            true,
 				MarkdownDescription: "The health of the server",
