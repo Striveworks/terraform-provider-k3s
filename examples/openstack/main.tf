@@ -24,7 +24,7 @@ resource "k3s_server" "main" {
   host        = openstack_compute_instance_v2.k8s-controller.access_ip_v4
   user        = "ubuntu"
   private_key = tls_private_key.ssh_keys.private_key_openssh
-  config      = data.k3s_server_config.main.yaml
+  config      = data.k3s_config.main.yaml
 }
 
 provider "openstack" {
