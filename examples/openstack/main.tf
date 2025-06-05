@@ -14,10 +14,17 @@ terraform {
 
 provider "k3s" {}
 
+data "k3s_server_config" "main" {
+  config = yamlencode({
+    "node-label" = ["foo=bar"]
+  })
+}
+
 resource "k3s_server" "main" {
   host        = openstack_compute_instance_v2.k8s-controller.access_ip_v4
   user        = "ubuntu"
   private_key = tls_private_key.ssh_keys.private_key_openssh
+  config      = data.k3s_server_config.main.yaml
 }
 
 provider "openstack" {
@@ -84,3 +91,20 @@ resource "openstack_compute_instance_v2" "k8s-controller" {
     port = openstack_networking_port_v2.k8s_controller_ports.id
   }
 }
+
+resource "local_file" "ssh_key" {
+  content         = tls_private_key.ssh_keys.private_key_openssh
+  filename        = "key.pem"
+  file_permission = "0600"
+}
+
+resource "local_file" "ssh_comd" {
+  content         = <<EOF
+#!/bin/bash
+ssh -i key.pem ubuntu@${openstack_compute_instance_v2.k8s-controller.access_ip_v4}
+EOF
+  filename        = "connect.sh"
+  file_permission = "0600"
+}
+
+

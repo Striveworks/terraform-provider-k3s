@@ -1,12 +1,10 @@
 // Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
 
 package provider
 
 import (
 	"context"
-	"encoding/json"
-	"io"
-	"net/http"
 	"os"
 	"strings"
 
@@ -20,20 +18,20 @@ import (
 )
 
 var (
-	_ provider.Provider = &k3sProvider{}
+	_ provider.Provider = &K3sProvider{}
 )
 
 // New is a helper function to simplify provider server and testing implementation.
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
-		return &k3sProvider{
-			version: version,
+		return &K3sProvider{
+			Version: version,
 		}
 	}
 }
 
-type k3sProvider struct {
-	version string
+type K3sProvider struct {
+	Version string
 }
 
 // k3sProviderModel maps provder schema data to Go type
@@ -44,13 +42,13 @@ type k3sProviderModel struct {
 }
 
 // Metadata returns the provider type name.
-func (p *k3sProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
+func (p *K3sProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "k3s"
-	resp.Version = p.version
+	resp.Version = p.Version
 }
 
 // Schema defines the provider-level schema for configuration data.
-func (p *k3sProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
+func (p *K3sProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"k3s_version": schema.StringAttribute{
@@ -62,7 +60,7 @@ func (p *k3sProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *
 }
 
 // Configure prepares a HashiCups API client for data sources and resources.
-func (p *k3sProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
+func (p *K3sProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var config k3sProviderModel
 	diags := req.Config.Get(ctx, &config)
 	resp.Diagnostics.Append(diags...)
@@ -83,31 +81,32 @@ func (p *k3sProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	}
 
 	version := os.Getenv("K3S_VERSION")
+	if strings.ToLower(version) == "latest" {
+		version = ""
+	}
 
+	// Even if env var set, take provider explicitly set
 	if !config.Version.IsNull() {
 		version = config.Version.ValueString()
 	}
 
-	if version == "" || strings.ToLower(version) == "latest" {
-		version, err := getLatestRelease()
-		if err != nil {
-			resp.Diagnostics.Append(fromError("Retrieving k3s releases from Github", err))
-		}
-		p.version = version
-	}
+	p.Version = version
 
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	resp.ResourceData = *p
+	resp.DataSourceData = *p
 }
 
 // DataSources defines the data sources implemented in the provider.
-func (p *k3sProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
+func (p *K3sProvider) DataSources(_ context.Context) []func() datasource.DataSource {
+	return []func() datasource.DataSource{NewK3sServerConfigDataSource}
 }
 
 // Resources defines the resources implemented in the provider.
-func (p *k3sProvider) Resources(_ context.Context) []func() resource.Resource {
+func (p *K3sProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewK3sServerResource,
 	}
@@ -138,30 +137,4 @@ func (v versionDiagnositcs) Detail() string {
 }
 func (v versionDiagnositcs) Equal(o diag.Diagnostic) bool {
 	return v.severity == o.Severity() && v.summary == o.Summary() && v.detail == o.Detail()
-}
-
-func getLatestRelease() (string, error) {
-	// Get releases
-	resp, err := http.Get("https://api.github.com/repos/k3s-io/k3s/releases")
-	if err != nil {
-		return "", err
-	}
-
-	// Read body
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	// Json into Dicts
-	var releases []struct {
-		Tag string `json:"tag_name"`
-	}
-	err = json.Unmarshal(body, &releases)
-	if err != nil {
-		return "", err
-	}
-
-	return releases[0].Tag, nil
 }

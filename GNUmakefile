@@ -19,6 +19,9 @@ configure: gobincheck ## Configures local terraform to use the binary
 	}
 	EOF
 
+vendor: ## Vendors the K3s script for offline installs
+	curl https://get.k3s.io -o assets/k3s-install.sh
+
 build: ## Builds the binary
 	go build -v ./...
 
@@ -45,3 +48,12 @@ help:  ## Display this help
 
 
 .PHONY: fmt lint test testacc build install generate help
+
+# Use WARN for now so we can filter out noise from other providers
+.PHONY: apply
+apply:
+	TF_LOG_PROVIDER=WARN terraform -chdir=examples/openstack apply -auto-approve
+
+.PHONY: destroy
+destroy:
+	TF_LOG_PROVIDER=WARN terraform -chdir=examples/openstack destroy -auto-approve

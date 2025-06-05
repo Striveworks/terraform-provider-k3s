@@ -10,6 +10,11 @@ description: |-
     host        = "192.168.10.1"
     user        = "ubuntu"
     private_key = var.private_key_openssh
+    config  = {
+  	  "etcd-expose-metrics" = "" // flag for true
+  	  "etcd-s3-timeout"     = "5m30s",
+  	  "node-label"		    = ["foo=bar"]
+    }
   }
 ---
 
@@ -22,6 +27,11 @@ resource "k3s_server" "main" {
   host        = "192.168.10.1"
   user        = "ubuntu"
   private_key = var.private_key_openssh
+  config  = {
+	  "etcd-expose-metrics" = "" // flag for true
+	  "etcd-s3-timeout"     = "5m30s",
+	  "node-label"		    = ["foo=bar"]
+  }
 }
 ```
 
@@ -35,6 +45,10 @@ resource "k3s_server" "main" {
 - `host` (String) Hostname of the target server
 - `private_key` (String, Sensitive) Value of a privatekey used to auth
 - `user` (String) Username of the target server
+
+### Optional
+
+- `config` (String) K3s server config
 
 ### Read-Only
 
