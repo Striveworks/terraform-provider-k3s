@@ -3,7 +3,7 @@
 
 package provider
 
-// Terraform Markdown Formatting
+// Terraform markdown formatter, wraps string in markdown terraform blocks.
 func TfMd(contents string) string {
 	return "```terraform\n" + contents + "\n```"
 }

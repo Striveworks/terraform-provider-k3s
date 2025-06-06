@@ -11,8 +11,7 @@ gobincheck:
 
 pre-commit-install:
 	pre-commit install; \
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $$(go env GOPATH)/bin v2.1.6; \
-	go install mvdan.cc/gofumpt@latest;
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $$(go env GOPATH)/bin v2.1.6;
 
 configure: gobincheck pre-commit-install ## Configures local terraform to use the binary
 		cat <<EOF > "$$HOME/.terraformrc"

@@ -41,7 +41,6 @@ func (s *server) Token() string {
 func NewK3sServerComponent(config map[string]any, version *string) K3sServer {
 	return &server{config: config, version: version}
 }
-
 func (s *server) dataDir() string {
 	if dir, ok := s.config["data_dir"].(string); ok && dir != "" {
 		return dir
@@ -52,7 +51,9 @@ func (s *server) dataDir() string {
 // RunPreReqs implements K3sComponent.
 func (s *server) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(string)) error {
 
-	client.WaitForReady(callbacks[0])
+	if err := client.WaitForReady(callbacks[0]); err != nil {
+		return err
+	}
 
 	configPath := fmt.Sprintf("%s/config.yaml", CONFIG_DIR)
 	configContents, err := yaml.Marshal(s.config)
@@ -60,7 +61,7 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(strin
 		return err
 	}
 
-	systemDContent, err := ReadSystemDSingle(configPath)
+	systemDContent, err := ReadSystemDSingleServer(configPath)
 	if err != nil {
 		return err
 	}

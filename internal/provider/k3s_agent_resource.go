@@ -13,6 +13,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"gopkg.in/yaml.v2"
+	"striveworks.us/terraform-provider-k3s/internal/k3s"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
@@ -51,8 +54,47 @@ func (k *K3sAgentResource) ImportState(context.Context, resource.ImportStateRequ
 }
 
 // Create implements resource.Resource.
-func (k *K3sAgentResource) Create(context.Context, resource.CreateRequest, *resource.CreateResponse) {
-	panic("unimplemented")
+func (k *K3sAgentResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var data AgentClientModel
+
+	// Read Terraform plan data into the model
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Let the k3sClient write the ssh outputs
+	// to the terraform logs
+	logger := func(out string) {
+		tflog.Warn(ctx, out)
+	}
+
+	sshClient, err := data.sshClient()
+	if err != nil {
+		resp.Diagnostics.Append(fromError("Creating ssh config", err))
+		return
+	}
+
+	token := data.Token.ValueString()
+	server := fmt.Sprintf("https://%s:6443", data.Host.ValueString())
+
+	var config map[string]any
+	if err := yaml.Unmarshal([]byte(data.K3sConfig.ValueString()), &config); err != nil {
+		resp.Diagnostics.Append(fromError("Creating k3s config", err))
+		return
+	}
+
+	config["token"] = token
+	config["server"] = server
+
+	agent := k3s.NewK3sAgentComponent(config, k.version)
+
+	if err := agent.RunPreReqs(sshClient, logger); err != nil {
+		resp.Diagnostics.Append(fromError("Running k3s agent prereqs", err))
+		return
+	}
+
 }
 
 // Delete implements resource.Resource.
@@ -89,17 +131,16 @@ resource "k3s_server" "main" {
   host        = "192.168.10.1"
   user        = "ubuntu"
   private_key = var.private_key_openssh
-  config      = data.k3s_server_config.server.yaml
+  config      = data.k3s_config.server.yaml
 }
 
 resource "k3s_agent" "worker" {
   host        = "192.168.10.2"
   user        = "ubuntu"
   private_key = var.private_key_openssh
-  config      = data.k3s_server_config.server.yaml
+  config      = data.k3s_config.server.yaml
   token		  = k3s_server.main.token
 }
-
 `),
 
 		Attributes: map[string]schema.Attribute{

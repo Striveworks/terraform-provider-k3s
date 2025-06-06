@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"embed"
 	"encoding/base64"
+	"fmt"
 	"text/template"
 )
 
@@ -22,14 +23,12 @@ func ReadInstallScript() (string, error) {
 	return base64.StdEncoding.EncodeToString(script), nil
 }
 
-func ReadSystemDSingle(path string) (string, error) {
-	// Default ExtraServerArgs to empty slice if nil
-
-	raw, err := assets.ReadFile("assets/k3s-single.service.tpl")
+func tplSystemD(path string, filename string) (string, error) {
+	raw, err := assets.ReadFile(fmt.Sprintf("assets/%s.tpl", filename))
 	if err != nil {
 		return "", err
 	}
-	tpl, err := template.New("k3s-single.service").Parse(string(raw))
+	tpl, err := template.New(filename).Parse(string(raw))
 	if err != nil {
 		return "", err
 	}
@@ -44,4 +43,14 @@ func ReadSystemDSingle(path string) (string, error) {
 	}
 
 	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
+// Returns the systemd file templated correctly as a b64 encoded string.
+func ReadSystemDSingleServer(path string) (string, error) {
+	return tplSystemD(path, "k3s-single.service")
+}
+
+// Returns the systemd file templated correctly as a b64 encoded string.
+func ReadSystemDSingleAgent(path string) (string, error) {
+	return tplSystemD(path, "k3s-agent.service")
 }

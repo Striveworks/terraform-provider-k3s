@@ -34,7 +34,6 @@ type K3sProvider struct {
 	Version string
 }
 
-// k3sProviderModel maps provder schema data to Go type
 type k3sProviderModel struct {
 	// K3s version to select, if not selected
 	// will default to latest

@@ -80,7 +80,7 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 	var config map[string]any
-	if err := yaml.Unmarshal([]byte(data.KubeConfig.ValueString()), &config); err != nil {
+	if err := yaml.Unmarshal([]byte(data.K3sConfig.ValueString()), &config); err != nil {
 		resp.Diagnostics.Append(fromError("Creating k3s config", err))
 		return
 	}
