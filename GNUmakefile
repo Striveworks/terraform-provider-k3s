@@ -9,7 +9,12 @@ gobincheck:
 		echo "\033[0;31mERROR: Ensure your gobin is set to \$$HOME/go/bin\033[0m"; \
 	fi
 
-configure: gobincheck ## Configures local terraform to use the binary
+pre-commit-install:
+	pre-commit install; \
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $$(go env GOPATH)/bin v2.1.6; \
+	go install mvdan.cc/gofumpt@latest;
+
+configure: gobincheck pre-commit-install ## Configures local terraform to use the binary
 		cat <<EOF > "$$HOME/.terraformrc"
 	provider_installation {
 		dev_overrides {
@@ -37,7 +42,7 @@ generate: ## Generates plugin docs. WARNING Only target requiring terraform and 
 fmt: ## Runs go formats
 	gofmt -s -w -e .
 
-test: ## Runs go tests 
+test: ## Runs go tests
 	go test -v -cover -timeout=120s -parallel=10 ./...
 
 testacc: ## Runs go acceptence tests e

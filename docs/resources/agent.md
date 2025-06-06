@@ -5,8 +5,8 @@ subcategory: ""
 description: |-
   Creates a K3s Server
   Example:
-  
-  
+
+
   data "k3s_config" "server" {
     data_dir = "/etc/k3s"
     config  = {
@@ -15,14 +15,14 @@ description: |-
   	  "node-label"		    = ["foo=bar"]
     }
   }
-  
+
   resource "k3s_server" "main" {
     host        = "192.168.10.1"
     user        = "ubuntu"
     private_key = var.private_key_openssh
     config      = data.k3s_server_config.server.yaml
   }
-  
+
   resource "k3s_agent" "worker" {
     host        = "192.168.10.2"
     user        = "ubuntu"

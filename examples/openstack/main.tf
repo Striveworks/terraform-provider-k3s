@@ -106,5 +106,3 @@ EOF
   filename        = "connect.sh"
   file_permission = "0600"
 }
-
-

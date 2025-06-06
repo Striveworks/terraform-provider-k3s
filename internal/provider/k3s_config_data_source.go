@@ -79,7 +79,7 @@ data "k3s_config" "server" {
 	  "etcd-s3-timeout"     = "5m30s",
 	  "node-label"		    = ["foo=bar"]
 	})
-} 
+}
 `),
 		Attributes: map[string]schema.Attribute{
 			"config": schema.StringAttribute{

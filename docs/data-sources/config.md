@@ -5,8 +5,8 @@ subcategory: ""
 description: |-
   K3s configuration. Read more here https://docs.k3s.io/cli/server.
   Example:
-  
-  
+
+
   data "k3s_config" "server" {
     data_dir = "/etc/k3s"
     config  = yamlencode({
@@ -30,7 +30,7 @@ data "k3s_config" "server" {
 	  "etcd-s3-timeout"     = "5m30s",
 	  "node-label"		    = ["foo=bar"]
 	})
-} 
+}
 
 ```
 
