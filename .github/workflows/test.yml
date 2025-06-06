@@ -49,6 +49,7 @@ jobs:
       - uses: actions/setup-python@v3
       - run: make generate
       - uses: pre-commit/action@v3.0.1
+        continue-on-error: true
         with:
           extra_args: trailing-whitespace --all-files
       - name: git diff
