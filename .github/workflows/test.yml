@@ -47,10 +47,10 @@ jobs:
         with:
           terraform_wrapper: false
       - uses: actions/setup-python@v3
+      - run: make generate
       - uses: pre-commit/action@v3.0.1
         with:
           extra_args: trailing-whitespace --all-files
-      - run: make generate
       - name: git diff
         run: |
           git diff --compact-summary --exit-code || \
@@ -83,6 +83,7 @@ jobs:
           terraform_wrapper: false
       - run: go mod download
       - run: make cfg-tfrc
+      - run: make install
       - env:
           TF_ACC: "1"
         run: go test -v -cover ./internal/provider/
