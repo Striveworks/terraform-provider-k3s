@@ -13,8 +13,8 @@ pre-commit-install:
 	pre-commit install; \
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $$(go env GOPATH)/bin v2.1.6;
 
-configure: gobincheck pre-commit-install ## Configures local terraform to use the binary
-		cat <<EOF > "$$HOME/.terraformrc"
+cfg-tfrc:
+	cat <<EOF > "$$HOME/.terraformrc"
 	provider_installation {
 		dev_overrides {
 			"striveworks.us/openstack/k3s" = "$$HOME/go/bin"
@@ -22,6 +22,8 @@ configure: gobincheck pre-commit-install ## Configures local terraform to use th
 		direct {}
 	}
 	EOF
+
+configure: cfg-tfrc gobincheck pre-commit-install ## Configures local terraform to use the binary
 
 vendor: ## Vendors the K3s script for offline installs
 	curl https://get.k3s.io -o assets/k3s-install.sh
