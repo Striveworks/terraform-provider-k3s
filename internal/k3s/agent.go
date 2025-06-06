@@ -23,7 +23,7 @@ type agent struct {
 }
 
 func NewK3sAgentComponent(config map[string]any, version *string) K3sAgent {
-	return &server{config: config, version: version}
+	return &agent{config: config, version: version}
 }
 
 // RunInstall implements K3sAgent.
@@ -34,9 +34,9 @@ func (a *agent) RunInstall(client ssh_client.SSHClient, callbacks ...func(string
 	}
 
 	commands := []string{
-		fmt.Sprintf("sudo INSTALL_K3S_SKIP_START=true %s bash /usr/local/bin/k3s-install.sh", version),
+		fmt.Sprintf("sudo INSTALL_K3S_SKIP_START=true INSTALL_K3S_EXEC=agent %s bash /usr/local/bin/k3s-install.sh", version),
 		"sudo systemctl daemon-reload",
-		"sudo systemctl start k3s",
+		"sudo systemctl start k3s-agent",
 	}
 
 	if err := client.RunStream(commands, callbacks...); err != nil {
@@ -100,7 +100,7 @@ func (a *agent) RunUninstall(client ssh_client.SSHClient, callbacks ...func(stri
 
 // Status implements K3sAgent.
 func (a *agent) Status(client ssh_client.SSHClient) (bool, error) {
-	res, err := client.Run("sudo systemctl is-active k3s")
+	res, err := client.Run("sudo systemctl is-active k3s-agent")
 	if err != nil {
 		return false, err
 	}

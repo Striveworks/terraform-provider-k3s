@@ -20,14 +20,15 @@ description: |-
     host        = "192.168.10.1"
     user        = "ubuntu"
     private_key = var.private_key_openssh
-    config      = data.k3s_server_config.server.yaml
+    config      = data.k3s_config.server.yaml
   }
 
   resource "k3s_agent" "worker" {
     host        = "192.168.10.2"
     user        = "ubuntu"
     private_key = var.private_key_openssh
-    config      = data.k3s_server_config.server.yaml
+    config      = data.k3s_config.server.yaml
+    server	  = "192.168.10.1"
     token		  = k3s_server.main.token
   }
 ---
@@ -51,17 +52,17 @@ resource "k3s_server" "main" {
   host        = "192.168.10.1"
   user        = "ubuntu"
   private_key = var.private_key_openssh
-  config      = data.k3s_server_config.server.yaml
+  config      = data.k3s_config.server.yaml
 }
 
 resource "k3s_agent" "worker" {
   host        = "192.168.10.2"
   user        = "ubuntu"
   private_key = var.private_key_openssh
-  config      = data.k3s_server_config.server.yaml
+  config      = data.k3s_config.server.yaml
+  server	  = "192.168.10.1"
   token		  = k3s_server.main.token
 }
-
 
 ```
 
@@ -74,6 +75,8 @@ resource "k3s_agent" "worker" {
 
 - `host` (String) Hostname of the target server
 - `private_key` (String, Sensitive) Value of a privatekey used to auth
+- `server` (String) Server host used for joining nodes to the cluster
+- `token` (String, Sensitive) Server token used for joining nodes to the cluster
 - `user` (String) Username of the target server
 
 ### Optional
@@ -84,5 +87,3 @@ resource "k3s_agent" "worker" {
 
 - `active` (Boolean) The health of the server
 - `id` (String) Id of the k3s server resource
-- `kubeconfig` (String) KubeConfig for the cluster
-- `token` (String, Sensitive) Server token used for joining nodes to the cluster

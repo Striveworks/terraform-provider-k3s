@@ -42,8 +42,8 @@ func (k *K3sConfigDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	var dataDir = DATA_DIR
-	if data.DataDir.IsNull() {
+	dataDir := DATA_DIR
+	if !data.DataDir.IsNull() {
 		dataDir = data.DataDir.ValueString()
 	}
 
@@ -65,7 +65,11 @@ func (k *K3sConfigDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	k.Yaml = types.StringValue(string(yamlBytes))
+	data.Yaml = types.StringValue(string(yamlBytes))
+	data.DataDir = types.StringValue(dataDir)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
 }
 
 // Schema implements datasource.DataSource.

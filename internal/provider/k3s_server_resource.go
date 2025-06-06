@@ -20,7 +20,6 @@ import (
 )
 
 var _ resource.ResourceWithConfigure = &K3sServerResource{}
-var _ resource.ResourceWithImportState = &K3sServerResource{}
 
 type K3sServerResource struct {
 	version *string
@@ -144,11 +143,6 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 		resp.Diagnostics.Append(fromError("Creating uninstall k3s", err))
 		return
 	}
-}
-
-// ImportState implements resource.ResourceWithImportState.
-func (s *K3sServerResource) ImportState(context.Context, resource.ImportStateRequest, *resource.ImportStateResponse) {
-	panic("unimplemented")
 }
 
 // Metadata implements resource.ResourceWithImportState.

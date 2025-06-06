@@ -153,7 +153,6 @@ func (s *server) Status(client ssh_client.SSHClient) (bool, error) {
 	}
 
 	return (res[0] == "active"), nil
-
 }
 
 func updateKubeConfig(kubeconfigText string, host string) (string, error) {

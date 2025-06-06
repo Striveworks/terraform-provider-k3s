@@ -138,3 +138,8 @@ func (v versionDiagnositcs) Detail() string {
 func (v versionDiagnositcs) Equal(o diag.Diagnostic) bool {
 	return v.severity == o.Severity() && v.summary == o.Summary() && v.detail == o.Detail()
 }
+
+// Terraform markdown formatter, wraps string in markdown terraform blocks.
+func TfMd(contents string) string {
+	return "```terraform\n" + contents + "\n```"
+}
