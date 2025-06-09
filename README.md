@@ -4,8 +4,54 @@
 
 ## Description
 
-Manage your [k3s](https://k3s.io) clusters with terraform
+Manage your [k3s](https://k3s.io) clusters with terraform. Much of this provider is a reimplementation of [k3s-ansible](https://github.com/k3s-io/k3s-ansible) into terraform
+resources so you can manage you k3s clusters together with your cloud provider of choice (or baremetal). This provider is cloud agnostic, but is tested on Openstack.
 
+## Usage
+
+We only guarantee unit testing on the 5 most recent bug minor versions of terraform.
+
+```hcl
+terraform {
+  required_version = ">= 0.13"
+
+  required_providers {
+    kubectl = {
+      source  = "striveworks/k3s"
+      version = ">= 0.0.1"
+    }
+  }
+}
+```
+
+
+## System requirements
+
+[K3S only supports running on modern linux systems](https://docs.k3s.io/installation/requirements#operating-systems).
+
+### K3S Node Support
+
+The provider is tested to target the following cpu and distros
+
+- [X] Ubuntu
+
+with cpu architectures
+
+- [x] amd64
+
+
+### Provider Host Support
+
+This provider is supported to run on OS-families
+
+- [X] windows
+- [X] linux
+- [X] darwin
+
+with cpu architectures
+
+- [x] amd64
+- [x] arm64
 
 ## License
 
