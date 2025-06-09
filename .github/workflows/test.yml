@@ -46,7 +46,7 @@ jobs:
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_wrapper: false
-      - uses: actions/setup-python@v3
+      - uses: actions/setup-python@v5
       - run: make generate
       - uses: pre-commit/action@v3.0.1
         continue-on-error: true
