@@ -32,10 +32,11 @@ func NewK3sServerResource() resource.Resource {
 // ServerClientModel describes the resource data model.
 type ServerClientModel struct {
 	// Inputs
-	PrivateKey types.String `tfsdk:"private_key"`
-	User       types.String `tfsdk:"user"`
-	Host       types.String `tfsdk:"host"`
-	K3sConfig  types.String `tfsdk:"config"`
+	PrivateKey  types.String `tfsdk:"private_key"`
+	User        types.String `tfsdk:"user"`
+	Host        types.String `tfsdk:"host"`
+	K3sConfig   types.String `tfsdk:"config"`
+	K3sRegistry types.String `tfsdk:"registry"`
 	// Outputs
 	Id         types.String `tfsdk:"id"`
 	KubeConfig types.String `tfsdk:"kubeconfig"`
@@ -70,7 +71,7 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	// Let the k3sClient write the ssh outputs
 	// to the terraform logs
 	logger := func(out string) {
-		tflog.Warn(ctx, out)
+		tflog.Info(ctx, out)
 	}
 
 	sshClient, err := data.sshClient()
@@ -78,13 +79,23 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 		resp.Diagnostics.Append(fromError("Creating ssh config", err))
 		return
 	}
+
 	var config map[string]any
 	if err := yaml.Unmarshal([]byte(data.K3sConfig.ValueString()), &config); err != nil {
 		resp.Diagnostics.Append(fromError("Creating k3s config", err))
 		return
 	}
 
-	server := k3s.NewK3sServerComponent(config, s.version)
+	var registry map[string]any
+	if !data.K3sRegistry.IsNull() {
+		config["embedded-registry"] = true
+		if err := yaml.Unmarshal([]byte(data.K3sRegistry.ValueString()), &registry); err != nil {
+			resp.Diagnostics.Append(fromError("Creating k3s registry", err))
+			return
+		}
+	}
+
+	server := k3s.NewK3sServerComponent(config, registry, s.version)
 
 	if err := server.RunPreReqs(sshClient, logger); err != nil {
 		resp.Diagnostics.Append(fromError("Running k3s server prereqs", err))
@@ -109,7 +120,7 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	id, _ := uuid.GenerateUUID()
 	data.Id = types.StringValue(id)
 
-	tflog.Warn(ctx, "created a k3s server resource")
+	tflog.Info(ctx, "created a k3s server resource")
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -129,7 +140,7 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 	// Let the k3sClient write the ssh outputs
 	// to the terraform logs
 	logger := func(out string) {
-		tflog.Warn(ctx, out)
+		tflog.Info(ctx, out)
 	}
 
 	sshClient, err := data.sshClient()
@@ -138,7 +149,7 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 		return
 	}
 
-	server := k3s.NewK3sServerComponent(nil, nil)
+	server := k3s.NewK3sServerComponent(nil, nil, nil)
 	if err := server.RunUninstall(sshClient, logger); err != nil {
 		resp.Diagnostics.Append(fromError("Creating uninstall k3s", err))
 		return
@@ -161,19 +172,22 @@ func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	// k3sClient, err := NewK3sClient(data)
-	// if err != nil {
-	// 	resp.Diagnostics.Append(fromError("Creating ssh config", err))
-	// 	return
-	// }
-	// active, err := k3sClient.IsActive()
-	// if err != nil {
-	// 	resp.Diagnostics.Append(fromError("Error retrieving server status", err))
-	// 	return
-	// }
-	// data.Active = types.BoolValue(active && false)
+	sshClient, err := data.sshClient()
+	if err != nil {
+		resp.Diagnostics.Append(fromError("Creating ssh config", err))
+		return
+	}
 
-	// resp.Diagnostics.Append(req.State.Set(ctx, &data)...)
+	server := k3s.NewK3sServerComponent(nil, nil, s.version)
+
+	active, err := server.Status(sshClient)
+	if err != nil {
+		resp.Diagnostics.Append(fromError("Error retrieving server status", err))
+		return
+	}
+	data.Active = types.BoolValue(active)
+
+	resp.Diagnostics.Append(req.State.Set(ctx, &data)...)
 }
 
 // Schema implements resource.ResourceWithImportState.
@@ -216,6 +230,10 @@ resource "k3s_server" "main" {
 			"config": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "K3s server config",
+			},
+			"registry": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "K3s server registry",
 			},
 			// Outputs
 			"id": schema.StringAttribute{

@@ -23,6 +23,7 @@ var _ K3sServer = &server{}
 
 type server struct {
 	config     map[string]any
+	registry   map[string]any
 	token      string
 	kubeConfig string
 	version    *string
@@ -38,8 +39,8 @@ func (s *server) Token() string {
 	return s.token
 }
 
-func NewK3sServerComponent(config map[string]any, version *string) K3sServer {
-	return &server{config: config, version: version}
+func NewK3sServerComponent(config map[string]any, registry map[string]any, version *string) K3sServer {
+	return &server{config: config, registry: registry, version: version}
 }
 func (s *server) dataDir() string {
 	if dir, ok := s.config["data_dir"].(string); ok && dir != "" {
@@ -61,6 +62,15 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(strin
 		return err
 	}
 
+	registryContents := []byte{}
+	registryPath := fmt.Sprintf("%s/registries.yaml", CONFIG_DIR)
+	if s.registry != nil {
+		registryContents, err = yaml.Marshal(s.registry)
+		if err != nil {
+			return err
+		}
+	}
+
 	systemDContent, err := ReadSystemDSingleServer(configPath)
 	if err != nil {
 		return err
@@ -80,14 +90,23 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(strin
 		fmt.Sprintf("sudo mkdir -p %s", s.dataDir()),
 		fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR),
 		// Write config file
-		fmt.Sprintf("echo %q | sudo tee %s/config.tmp.yaml > /dev/null", base64.StdEncoding.EncodeToString(configContents), CONFIG_DIR),
-		fmt.Sprintf("sudo base64 -d %s/config.tmp.yaml | sudo tee %s > /dev/null", CONFIG_DIR, configPath),
-		fmt.Sprintf("sudo rm %s/config.tmp.yaml", CONFIG_DIR),
+		fmt.Sprintf("echo %q | sudo tee %s.tmp > /dev/null", base64.StdEncoding.EncodeToString(configContents), CONFIG_DIR),
+		fmt.Sprintf("sudo base64 -d %s.tmp | sudo tee %s > /dev/null", CONFIG_DIR, configPath),
+		fmt.Sprintf("sudo rm %s.tmp", CONFIG_DIR),
 		// Write the SystemD file
 		fmt.Sprintf("echo %q | sudo tee /etc/systemd/system/k3s.service.tmp > /dev/null", systemDContent),
 		"sudo base64 -d /etc/systemd/system/k3s.service.tmp | sudo tee /etc/systemd/system/k3s.service > /dev/null",
 		"sudo chown root:root /etc/systemd/system/k3s.service",
 		"sudo rm /etc/systemd/system/k3s.service.tmp",
+	}
+
+	if len(registryContents) != 0 {
+		commands = append(commands, []string{
+			// Write registries file
+			fmt.Sprintf("echo %q | sudo tee %s.tmp > /dev/null", base64.StdEncoding.EncodeToString(registryContents), CONFIG_DIR),
+			fmt.Sprintf("sudo base64 -d %s.tmp | sudo tee %s > /dev/null", CONFIG_DIR, registryPath),
+			fmt.Sprintf("sudo rm %s.tmp", CONFIG_DIR),
+		}...)
 	}
 
 	return client.RunStream(commands, callbacks...)

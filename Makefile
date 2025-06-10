@@ -18,7 +18,7 @@ cfg-tfrc:
 	cat <<EOF > "$$HOME/.terraformrc"
 	provider_installation {
 		dev_overrides {
-			"striveworks.us/openstack/k3s" = "$$HOME/go/bin"
+			"striveworks/k3s" = "$$HOME/go/bin"
 		}
 		direct {}
 	}
@@ -59,13 +59,18 @@ test: ## Runs go tests
 testacc: ## Runs go acceptence tests
 	TF_ACC=1 go test -v -cover -timeout 120m ./...
 
-.PHONY: apply # Use WARN for now so we can filter out noise from other providers
-apply: ## Stands up the openstack example provider
-	TF_LOG_PROVIDER=WARN tofu -chdir=examples/openstack apply -auto-approve
 
-.PHONY: destroy
-destroy: ## Use WARN for now so we can filter out noise from other providers
-	TF_LOG_PROVIDER=WARN tofu -chdir=examples/openstack destroy -auto-approve
+.PHONY: init-%
+init-%: ## Stands up the openstack example provider
+	tofu -chdir=examples/$* init
+
+.PHONY: apply-%
+apply-%: ## Stands up the openstack example provider
+	tofu -chdir=examples/$* apply -auto-approve
+
+.PHONY: destroy-%
+destroy-%: ## Destroys the infrastructure
+	tofu -chdir=examples/$* destroy -auto-approve
 
 .PHONY: help
 help:  ## Display this help

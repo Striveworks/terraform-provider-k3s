@@ -61,6 +61,7 @@ resource "k3s_server" "main" {
 ### Optional
 
 - `config` (String) K3s server config
+- `registry` (String) K3s server registry
 
 ### Read-Only
 

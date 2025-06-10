@@ -18,12 +18,13 @@ type K3sAgent interface {
 var _ K3sAgent = &agent{}
 
 type agent struct {
-	config  map[string]any
-	version *string
+	config   map[string]any
+	registry map[string]any
+	version  *string
 }
 
-func NewK3sAgentComponent(config map[string]any, version *string) K3sAgent {
-	return &agent{config: config, version: version}
+func NewK3sAgentComponent(config map[string]any, registry map[string]any, version *string) K3sAgent {
+	return &agent{config: config, registry: registry, version: version}
 }
 
 // RunInstall implements K3sAgent.
@@ -58,6 +59,15 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(string
 		return err
 	}
 
+	registryContents := []byte{}
+	registryPath := fmt.Sprintf("%s/registries.yaml", CONFIG_DIR)
+	if a.registry != nil {
+		registryContents, err = yaml.Marshal(a.registry)
+		if err != nil {
+			return err
+		}
+	}
+
 	systemDContent, err := ReadSystemDSingleAgent(configPath)
 	if err != nil {
 		return err
@@ -85,6 +95,15 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(string
 		"sudo base64 -d /etc/systemd/system/k3s-agent.service.tmp | sudo tee /etc/systemd/system/k3s-agent.service > /dev/null",
 		"sudo chown root:root /etc/systemd/system/k3s-agent.service",
 		"sudo rm /etc/systemd/system/k3s-agent.service.tmp",
+	}
+
+	if len(registryContents) != 0 {
+		commands = append(commands, []string{
+			// Write registries file
+			fmt.Sprintf("echo %q | sudo tee %s.tmp > /dev/null", base64.StdEncoding.EncodeToString(registryContents), CONFIG_DIR),
+			fmt.Sprintf("sudo base64 -d %s.tmp | sudo tee %s > /dev/null", CONFIG_DIR, registryPath),
+			fmt.Sprintf("sudo rm %s.tmp", CONFIG_DIR),
+		}...)
 	}
 
 	return client.RunStream(commands, callbacks...)

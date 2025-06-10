@@ -16,7 +16,7 @@ const (
 	providerConfig = `terraform {
   required_providers {
     k3s = {
-      source = "striveworks.us/openstack/k3s"
+      source = "striveworks.us/k3s"
     }
   }
 }
