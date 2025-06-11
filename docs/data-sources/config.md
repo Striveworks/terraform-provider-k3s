@@ -6,7 +6,6 @@ description: |-
   K3s configuration. Read more here https://docs.k3s.io/cli/server.
   Example:
 
-
   data "k3s_config" "server" {
     data_dir = "/etc/k3s"
     config  = yamlencode({
@@ -20,9 +19,10 @@ description: |-
 # k3s_config (Data Source)
 
 K3s configuration. Read more [here](https://docs.k3s.io/cli/server).
-Example:
-```terraform
 
+Example:
+
+```hcl
 data "k3s_config" "server" {
   data_dir = "/etc/k3s"
   config  = yamlencode({
@@ -31,7 +31,6 @@ data "k3s_config" "server" {
 	  "node-label"		    = ["foo=bar"]
 	})
 }
-
 ```
 
 

@@ -1,6 +1,3 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
-
 package provider
 
 import (
@@ -41,13 +38,59 @@ type AgentClientModel struct {
 	Active types.Bool   `tfsdk:"active"`
 }
 
+func (K3sAgentResource) description() MarkdownDescription {
+	return `
+Creates a K3s Server
+
+Example:
+
+!!!hcl
+data "k3s_config" "server" {
+  data_dir = "/etc/k3s"
+  config  = {
+	  "etcd-expose-metrics" = "" // flag for true
+	  "etcd-s3-timeout"     = "5m30s",
+	  "node-label"		    = ["foo=bar"]
+  }
+}
+
+resource "k3s_server" "main" {
+  host        = "192.168.10.1"
+  user        = "ubuntu"
+  private_key = var.private_key_openssh
+  config      = data.k3s_config.server.yaml
+}
+
+resource "k3s_agent" "worker" {
+  host        = "192.168.10.2"
+  user        = "ubuntu"
+  private_key = var.private_key_openssh
+  config      = data.k3s_config.server.yaml
+  server	  = "192.168.10.1"
+  token		  = k3s_server.main.token
+}
+!!!
+`
+}
+
 func (s *AgentClientModel) sshClient() (ssh_client.SSHClient, error) {
 	return ssh_client.NewSSHClient(fmt.Sprintf("%s:22", s.Host.ValueString()), s.User.ValueString(), s.PrivateKey.ValueString())
 }
 
 // Configure implements resource.ResourceWithConfigure.
-func (k *K3sAgentResource) Configure(context.Context, resource.ConfigureRequest, *resource.ConfigureResponse) {
+func (k *K3sAgentResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
 
+	provider, ok := req.ProviderData.(*K3sProvider)
+	if !ok {
+		resp.Diagnostics.Append(fromError("Could not convert provider data into version", nil))
+		return
+	}
+	if provider.Version != "" {
+		k.version = &provider.Version
+	}
 }
 
 // Create implements resource.Resource.
@@ -189,34 +232,7 @@ func (k *K3sAgentResource) Read(ctx context.Context, req resource.ReadRequest, r
 // Schema implements resource.Resource.
 func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: `Creates a K3s Server
-Example:
-` + TfMd(`
-data "k3s_config" "server" {
-  data_dir = "/etc/k3s"
-  config  = {
-	  "etcd-expose-metrics" = "" // flag for true
-	  "etcd-s3-timeout"     = "5m30s",
-	  "node-label"		    = ["foo=bar"]
-  }
-}
-
-resource "k3s_server" "main" {
-  host        = "192.168.10.1"
-  user        = "ubuntu"
-  private_key = var.private_key_openssh
-  config      = data.k3s_config.server.yaml
-}
-
-resource "k3s_agent" "worker" {
-  host        = "192.168.10.2"
-  user        = "ubuntu"
-  private_key = var.private_key_openssh
-  config      = data.k3s_config.server.yaml
-  server	  = "192.168.10.1"
-  token		  = k3s_server.main.token
-}
-`),
+		MarkdownDescription: k.description().ToMarkdown(),
 
 		Attributes: map[string]schema.Attribute{
 			// Inputs

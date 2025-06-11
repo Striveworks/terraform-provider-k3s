@@ -72,10 +72,13 @@ func (k *K3sConfigDataSource) Read(ctx context.Context, req datasource.ReadReque
 
 }
 
-// Schema implements datasource.DataSource.
-func (k *K3sConfigDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
-	resp.Schema = schema.Schema{
-		MarkdownDescription: "K3s configuration. Read more [here](https://docs.k3s.io/cli/server).\nExample:\n" + TfMd(`
+func (k *K3sConfigDataSource) description() MarkdownDescription {
+	return `
+K3s configuration. Read more [here](https://docs.k3s.io/cli/server).
+
+Example:
+
+!!!hcl
 data "k3s_config" "server" {
   data_dir = "/etc/k3s"
   config  = yamlencode({
@@ -84,7 +87,14 @@ data "k3s_config" "server" {
 	  "node-label"		    = ["foo=bar"]
 	})
 }
-`),
+!!!
+`
+}
+
+// Schema implements datasource.DataSource.
+func (k *K3sConfigDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: k.description().ToMarkdown(),
 		Attributes: map[string]schema.Attribute{
 			"config": schema.StringAttribute{
 				Optional:            true,

@@ -13,10 +13,15 @@ type versionDiagnositcs struct {
 }
 
 func fromError(summary string, e error) diag.Diagnostic {
+	detail := ""
+	if e != nil {
+		detail = e.Error()
+	}
+
 	return versionDiagnositcs{
 		severity: 1,
 		summary:  summary,
-		detail:   e.Error(),
+		detail:   detail,
 	}
 }
 

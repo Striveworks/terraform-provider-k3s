@@ -10,7 +10,9 @@ terraform {
   }
 }
 
-provider "k3s" {}
+provider "k3s" {
+  k3s_version = "v1.33.1-k3s1"
+}
 provider "openstack" {}
 
 resource "tls_private_key" "ssh_keys" {
@@ -79,7 +81,7 @@ resource "local_file" "ssh_key" {
 resource "local_file" "ssh_cmd" {
   content         = <<EOF
 #!/bin/bash
-ssh -i key.pem rocky@${openstack_compute_instance_v2.k8s-controller.access_ip_v4}
+ssh -i key.pem ${var.user}@${openstack_compute_instance_v2.k8s-controller.access_ip_v4}
 EOF
   filename        = "connect.sh"
   file_permission = "0600"

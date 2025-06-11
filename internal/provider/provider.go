@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
-	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -46,9 +45,26 @@ func (p *K3sProvider) Metadata(_ context.Context, _ provider.MetadataRequest, re
 	resp.Version = p.Version
 }
 
+func (p *K3sProvider) description() MarkdownDescription {
+	return `
+K3s Terraform Provider
+
+Use with your favorite cloud provider, openstack or baremetal. Makes no assumptions about the target backend.
+
+Example:
+
+!!!hcl
+provider k3s {
+	k3s_version = "v1.33.1-k3s1" // optional
+}
+!!!
+`
+}
+
 // Schema defines the provider-level schema for configuration data.
 func (p *K3sProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: p.description().ToMarkdown(),
 		Attributes: map[string]schema.Attribute{
 			"k3s_version": schema.StringAttribute{
 				Optional:    true,
@@ -95,8 +111,8 @@ func (p *K3sProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		return
 	}
 
-	resp.ResourceData = *p
-	resp.DataSourceData = *p
+	resp.ResourceData = p
+	resp.DataSourceData = p
 }
 
 // DataSources defines the data sources implemented in the provider.
@@ -110,36 +126,4 @@ func (p *K3sProvider) Resources(_ context.Context) []func() resource.Resource {
 		NewK3sServerResource,
 		NewK3sAgentResource,
 	}
-}
-
-type versionDiagnositcs struct {
-	severity diag.Severity
-	summary  string
-	detail   string
-}
-
-func fromError(summary string, e error) diag.Diagnostic {
-	return versionDiagnositcs{
-		severity: 1,
-		summary:  summary,
-		detail:   e.Error(),
-	}
-}
-
-func (v versionDiagnositcs) Severity() diag.Severity {
-	return v.severity
-}
-func (v versionDiagnositcs) Summary() string {
-	return v.summary
-}
-func (v versionDiagnositcs) Detail() string {
-	return v.detail
-}
-func (v versionDiagnositcs) Equal(o diag.Diagnostic) bool {
-	return v.severity == o.Severity() && v.summary == o.Summary() && v.detail == o.Detail()
-}
-
-// Terraform markdown formatter, wraps string in markdown terraform blocks.
-func TfMd(contents string) string {
-	return "```terraform\n" + contents + "\n```"
 }

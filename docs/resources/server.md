@@ -6,7 +6,6 @@ description: |-
   Creates a K3s Server
   Example:
 
-
   data "k3s_config" "server" {
     data_dir = "/etc/k3s"
     config  = {
@@ -27,9 +26,10 @@ description: |-
 # k3s_server (Resource)
 
 Creates a K3s Server
-Example:
-```terraform
 
+Example:
+
+```hcl
 data "k3s_config" "server" {
   data_dir = "/etc/k3s"
   config  = {

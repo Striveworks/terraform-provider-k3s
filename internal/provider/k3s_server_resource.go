@@ -50,11 +50,18 @@ func (s *ServerClientModel) sshClient() (ssh_client.SSHClient, error) {
 
 // Configure implements resource.ResourceWithConfigure.
 func (s *K3sServerResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	// TODO: Fix
-	// provider := req.ProviderData.(K3sProvider)
-	// if provider.Version != "" {
-	// 	s.version = &provider.Version
-	// }
+	if req.ProviderData == nil {
+		return
+	}
+
+	provider, ok := req.ProviderData.(*K3sProvider)
+	if !ok {
+		resp.Diagnostics.Append(fromError("Could not convert provider data into version", nil))
+		return
+	}
+	if provider.Version != "" {
+		s.version = &provider.Version
+	}
 }
 
 // Create implements resource.ResourceWithImportState.
@@ -190,12 +197,13 @@ func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 	resp.Diagnostics.Append(req.State.Set(ctx, &data)...)
 }
 
-// Schema implements resource.ResourceWithImportState.
-func (s *K3sServerResource) Schema(context context.Context, resource resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{
-		MarkdownDescription: `Creates a K3s Server
+func (s *K3sServerResource) description() MarkdownDescription {
+	return `
+Creates a K3s Server
+
 Example:
-` + TfMd(`
+
+!!!hcl
 data "k3s_config" "server" {
   data_dir = "/etc/k3s"
   config  = {
@@ -210,8 +218,15 @@ resource "k3s_server" "main" {
   user        = "ubuntu"
   private_key = var.private_key_openssh
   config      = data.k3s_server_config.server.yaml
-}`),
+}
+!!!
+`
+}
 
+// Schema implements resource.ResourceWithImportState.
+func (s *K3sServerResource) Schema(context context.Context, resource resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: s.description().ToMarkdown(),
 		Attributes: map[string]schema.Attribute{
 			// Inputs
 			"private_key": schema.StringAttribute{
