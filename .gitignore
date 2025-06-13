@@ -35,3 +35,6 @@ website/vendor
 *.winfile eol=crlf
 
 .vscode
+.modcache
+.bincache
+*tfvars.json

@@ -55,7 +55,7 @@ Example:
 
 !!!hcl
 provider k3s {
-	k3s_version = "v1.33.1-k3s1" // optional
+	k3s_version = "v1.33.1+k3s1" // optional
 }
 !!!
 `
@@ -79,9 +79,11 @@ func (p *K3sProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	var config k3sProviderModel
 	diags := req.Config.Get(ctx, &config)
 	resp.Diagnostics.Append(diags...)
+
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
 	if config.Version.IsUnknown() {
 		resp.Diagnostics.AddAttributeError(
 			path.Root("host"),

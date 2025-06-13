@@ -1,7 +1,8 @@
 terraform {
   required_providers {
     k3s = {
-      source = "striveworks/k3s"
+      source  = "striveworks/k3s"
+      version = "*"
     }
     openstack = {
       source  = "terraform-provider-openstack/openstack"

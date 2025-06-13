@@ -4,10 +4,12 @@
 package k3s
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"gopkg.in/yaml.v2"
 	"k8s.io/client-go/tools/clientcmd"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
@@ -27,6 +29,8 @@ type server struct {
 	token      string
 	kubeConfig string
 	version    *string
+
+	ctx context.Context
 }
 
 // KubeConfig implements K3sServer.
@@ -39,8 +43,8 @@ func (s *server) Token() string {
 	return s.token
 }
 
-func NewK3sServerComponent(config map[string]any, registry map[string]any, version *string) K3sServer {
-	return &server{config: config, registry: registry, version: version}
+func NewK3sServerComponent(ctx context.Context, config map[string]any, registry map[string]any, version *string) K3sServer {
+	return &server{config: config, registry: registry, version: version, ctx: ctx}
 }
 func (s *server) dataDir() string {
 	if dir, ok := s.config["data_dir"].(string); ok && dir != "" {
@@ -50,18 +54,20 @@ func (s *server) dataDir() string {
 }
 
 // RunPreReqs implements K3sComponent.
-func (s *server) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(string)) error {
+func (s *server) RunPreReqs(client ssh_client.SSHClient) error {
 
-	if err := client.WaitForReady(callbacks[0]); err != nil {
+	if err := client.WaitForReady(); err != nil {
 		return err
 	}
 
+	tflog.Debug(s.ctx, "Reading config path")
 	configPath := fmt.Sprintf("%s/config.yaml", CONFIG_DIR)
 	configContents, err := yaml.Marshal(s.config)
 	if err != nil {
 		return err
 	}
 
+	tflog.Debug(s.ctx, "Reading registries")
 	registryContents := []byte{}
 	registryPath := fmt.Sprintf("%s/registries.yaml", CONFIG_DIR)
 	if s.registry != nil {
@@ -71,11 +77,13 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(strin
 		}
 	}
 
+	tflog.Debug(s.ctx, "Reading systemd file")
 	systemDContent, err := ReadSystemDSingleServer(configPath)
 	if err != nil {
 		return err
 	}
 
+	tflog.Debug(s.ctx, "Reading install script")
 	installContents, err := ReadInstallScript()
 	if err != nil {
 		return err
@@ -109,14 +117,14 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(strin
 		}...)
 	}
 
-	return client.RunStream(commands, callbacks...)
+	return client.RunStream(commands)
 }
 
 // RunInstall implements K3sComponent.
-func (s *server) RunInstall(client ssh_client.SSHClient, callbacks ...func(string)) error {
+func (s *server) RunInstall(client ssh_client.SSHClient) error {
 	version := ""
 	if s.version != nil {
-		version = fmt.Sprintf("INSTALL_K3S_VERSION=%s", *s.version)
+		version = fmt.Sprintf("INSTALL_K3S_VERSION=\"%s\"", *s.version)
 	}
 	commands := []string{
 		fmt.Sprintf("sudo INSTALL_K3S_SKIP_START=true %s bash /usr/local/bin/k3s-install.sh", version),
@@ -124,7 +132,7 @@ func (s *server) RunInstall(client ssh_client.SSHClient, callbacks ...func(strin
 		"sudo systemctl start k3s",
 	}
 
-	if err := client.RunStream(commands, callbacks...); err != nil {
+	if err := client.RunStream(commands); err != nil {
 		return err
 	}
 
@@ -155,23 +163,41 @@ func (s *server) RunInstall(client ssh_client.SSHClient, callbacks ...func(strin
 }
 
 // RunUninstall implements K3sServer.
-func (s *server) RunUninstall(client ssh_client.SSHClient, callbacks ...func(string)) error {
+func (s *server) RunUninstall(client ssh_client.SSHClient) error {
 	return client.RunStream([]string{
 		"sudo bash /usr/local/bin/k3s-uninstall.sh",
-	}, callbacks...)
+	})
 }
 
 func (s *server) Status(client ssh_client.SSHClient) (bool, error) {
-	res, err := client.Run("sudo systemctl is-active k3s")
+	return systemdStatus("k3s", client)
+
+}
+
+func (s *server) Journal(client ssh_client.SSHClient) (string, error) {
+	res, err := client.Run("sudo journalctl -xeu k3s")
 	if err != nil {
-		return false, err
+		return "", err
 	}
 
 	if len(res) != 1 {
-		return false, fmt.Errorf("wrong number of results from server status check")
+		return "", fmt.Errorf("wrong number of results from server status check")
 	}
 
-	return (res[0] == "active"), nil
+	return res[0], nil
+}
+
+func (s *server) StatusLog(client ssh_client.SSHClient) (string, error) {
+	res, err := client.Run("sudo systemctl status k3s")
+	if err != nil {
+		return "", err
+	}
+
+	if len(res) != 1 {
+		return "", fmt.Errorf("wrong number of results from server status check")
+	}
+
+	return res[0], nil
 }
 
 func updateKubeConfig(kubeconfigText string, host string) (string, error) {

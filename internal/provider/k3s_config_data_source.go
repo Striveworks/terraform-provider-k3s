@@ -52,7 +52,7 @@ func (k *K3sConfigDataSource) Read(ctx context.Context, req datasource.ReadReque
 		config = make(map[string]any)
 	} else {
 		if err := yaml.Unmarshal([]byte(data.Config.ValueString()), &config); err != nil {
-			resp.Diagnostics.Append(fromError("Error parsing config", err))
+			resp.Diagnostics.AddError("Error parsing config", err.Error())
 			return
 		}
 	}
@@ -61,7 +61,7 @@ func (k *K3sConfigDataSource) Read(ctx context.Context, req datasource.ReadReque
 
 	yamlBytes, err := yaml.Marshal(config)
 	if err != nil {
-		resp.Diagnostics.Append(fromError("Error marshalling k3s server config as yaml", err))
+		resp.Diagnostics.AddError("Error marshalling k3s server config as yaml", err.Error())
 		return
 	}
 

@@ -4,6 +4,7 @@
 package k3s
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 
@@ -18,17 +19,17 @@ type K3sAgent interface {
 var _ K3sAgent = &agent{}
 
 type agent struct {
-	config   map[string]any
-	registry map[string]any
-	version  *string
+	config  map[string]any
+	version *string
+	ctx     context.Context
 }
 
-func NewK3sAgentComponent(config map[string]any, registry map[string]any, version *string) K3sAgent {
-	return &agent{config: config, registry: registry, version: version}
+func NewK3sAgentComponent(ctx context.Context, config map[string]any, version *string) K3sAgent {
+	return &agent{ctx: ctx, config: config, version: version}
 }
 
 // RunInstall implements K3sAgent.
-func (a *agent) RunInstall(client ssh_client.SSHClient, callbacks ...func(string)) error {
+func (a *agent) RunInstall(client ssh_client.SSHClient) error {
 	version := ""
 	if a.version != nil {
 		version = fmt.Sprintf("INSTALL_K3S_VERSION='%s'", *a.version)
@@ -40,16 +41,16 @@ func (a *agent) RunInstall(client ssh_client.SSHClient, callbacks ...func(string
 		"sudo systemctl start k3s-agent",
 	}
 
-	if err := client.RunStream(commands, callbacks...); err != nil {
+	if err := client.RunStream(commands); err != nil {
 		return err
 	}
 	return nil
 }
 
 // RunPreReqs implements K3sAgent.
-func (a *agent) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(string)) error {
+func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
 
-	if err := client.WaitForReady(callbacks[0]); err != nil {
+	if err := client.WaitForReady(); err != nil {
 		return err
 	}
 
@@ -57,15 +58,6 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(string
 	configContents, err := yaml.Marshal(a.config)
 	if err != nil {
 		return err
-	}
-
-	registryContents := []byte{}
-	registryPath := fmt.Sprintf("%s/registries.yaml", CONFIG_DIR)
-	if a.registry != nil {
-		registryContents, err = yaml.Marshal(a.registry)
-		if err != nil {
-			return err
-		}
 	}
 
 	systemDContent, err := ReadSystemDSingleAgent(configPath)
@@ -97,38 +89,46 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(string
 		"sudo rm /etc/systemd/system/k3s-agent.service.tmp",
 	}
 
-	if len(registryContents) != 0 {
-		commands = append(commands, []string{
-			// Write registries file
-			fmt.Sprintf("echo %q | sudo tee %s.tmp > /dev/null", base64.StdEncoding.EncodeToString(registryContents), CONFIG_DIR),
-			fmt.Sprintf("sudo base64 -d %s.tmp | sudo tee %s > /dev/null", CONFIG_DIR, registryPath),
-			fmt.Sprintf("sudo rm %s.tmp", CONFIG_DIR),
-		}...)
-	}
-
-	return client.RunStream(commands, callbacks...)
+	return client.RunStream(commands)
 
 }
 
 // RunUninstall implements K3sAgent.
-func (a *agent) RunUninstall(client ssh_client.SSHClient, callbacks ...func(string)) error {
+func (a *agent) RunUninstall(client ssh_client.SSHClient) error {
 	return client.RunStream([]string{
 		"sudo bash /usr/local/bin/k3s-agent-uninstall.sh",
-	}, callbacks...)
+	})
+}
+
+func (a *agent) Journal(client ssh_client.SSHClient) (string, error) {
+	res, err := client.Run("sudo journalctl -xeu k3s-agent")
+	if err != nil {
+		return "", err
+	}
+
+	if len(res) != 1 {
+		return "", fmt.Errorf("wrong number of results from server status check")
+	}
+
+	return res[0], nil
 }
 
 // Status implements K3sAgent.
 func (a *agent) Status(client ssh_client.SSHClient) (bool, error) {
-	res, err := client.Run("sudo systemctl is-active k3s-agent")
+	return systemdStatus("k3s-agent", client)
+}
+
+func (a *agent) StatusLog(client ssh_client.SSHClient) (string, error) {
+	res, err := client.Run("sudo systemctl status k3s-agent")
 	if err != nil {
-		return false, err
+		return "", err
 	}
 
 	if len(res) != 1 {
-		return false, fmt.Errorf("wrong number of results from server status check")
+		return "", fmt.Errorf("wrong number of results from server status check")
 	}
 
-	return (res[0] == "active"), nil
+	return res[0], nil
 }
 
 func (a *agent) dataDir() string {

@@ -5,28 +5,43 @@ package ssh_client
 
 import (
 	"bufio"
+	"context"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"golang.org/x/crypto/ssh"
 )
 
-func NewSSHClient(addr string, user string, pem string) (SSHClient, error) {
-	signer, err := signerFromPem([]byte(pem))
-	if err != nil {
-		return nil, err
+func NewSSHClient(ctx context.Context, addr string, user string, pem string, password string) (SSHClient, error) {
+
+	var auth ssh.AuthMethod
+	if pem != "" {
+		tflog.Debug(ctx, "Using pem key auth")
+		signer, err := signerFromPem([]byte(pem))
+		if err != nil {
+			return nil, err
+		}
+		auth = ssh.PublicKeys(signer)
+	} else {
+		tflog.Debug(ctx, "Using password auth")
+		auth = ssh.Password(password)
 	}
 
-	return &sshClient{host: addr,
+	tflog.Info(ctx, fmt.Sprintf("Using auth against %s", addr))
+	return &sshClient{
+		ctx:  ctx,
+		host: addr,
 		config: ssh.ClientConfig{
 			User: user,
 			Auth: []ssh.AuthMethod{
-				ssh.PublicKeys(signer),
+				auth,
 			},
 			// In production, implement proper host key verification
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			// Timeout:         60,
 		}}, nil
 }
 
@@ -36,9 +51,9 @@ type SSHClient interface {
 	Run(commands ...string) ([]string, error)
 	// Runs a set of commands, streaming their output to a callbacks
 	// Callbacks will be (stdout, stderr) or (stdout + stderr,)
-	RunStream(commands []string, callbacks ...func(string)) error
+	RunStream(commands []string) error
 	// Waits for the server to be ready
-	WaitForReady(logger func(string)) error
+	WaitForReady() error
 	// Host name/address
 	Host() string
 }
@@ -48,6 +63,7 @@ var _ SSHClient = &sshClient{}
 type sshClient struct {
 	config ssh.ClientConfig
 	host   string
+	ctx    context.Context
 }
 
 func (s *sshClient) Host() string {
@@ -92,30 +108,16 @@ func (s *sshClient) runSingle(command string) (result string, err error) {
 }
 
 // RunStream implements SSHClient.
-func (s *sshClient) RunStream(commands []string, callback ...func(string)) (err error) {
+func (s *sshClient) RunStream(commands []string) (err error) {
 	for _, cmd := range commands {
-		if err = s.streamSingle(cmd, callback...); err != nil {
+		if err = s.streamSingle(cmd); err != nil {
 			return
 		}
 	}
 	return
 }
 
-func (s *sshClient) streamSingle(command string, callback ...func(string)) error {
-	stdoutFunc := func(string) {}
-	stderrFunc := func(string) {}
-
-	switch len(callback) {
-	case 2:
-		stdoutFunc = callback[0]
-		stderrFunc = callback[1]
-	case 1:
-		stderrFunc = callback[0]
-		stdoutFunc = callback[0]
-	default:
-		break
-	}
-
+func (s *sshClient) streamSingle(command string) error {
 	client, err := ssh.Dial("tcp", s.host, &s.config)
 	if err != nil {
 		return fmt.Errorf("create client failed %v", err)
@@ -139,7 +141,7 @@ func (s *sshClient) streamSingle(command string, callback ...func(string)) error
 	}
 
 	// Start the commands
-
+	tflog.Debug(s.ctx, fmt.Sprintf("Running ssh comannd %s", command))
 	if err := session.Start(command); err != nil {
 		return fmt.Errorf("cannot start cmd '%s': %s", command, err)
 	}
@@ -151,7 +153,7 @@ func (s *sshClient) streamSingle(command string, callback ...func(string)) error
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
-			stdoutFunc(line)
+			tflog.Debug(s.ctx, fmt.Sprintf("[STDOUT] %s", line))
 		}
 		done <- struct{}{}
 	}()
@@ -161,7 +163,7 @@ func (s *sshClient) streamSingle(command string, callback ...func(string)) error
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
-			stderrFunc(line)
+			tflog.Debug(s.ctx, fmt.Sprintf("[STDERR] %s", line))
 		}
 		done <- struct{}{}
 	}()
@@ -178,18 +180,20 @@ func (s *sshClient) streamSingle(command string, callback ...func(string)) error
 	return nil
 }
 
-func (s *sshClient) WaitForReady(logger func(string)) error {
+func (s *sshClient) WaitForReady() error {
 	maxRetries := 10
 	for i := range maxRetries {
 		client, err := ssh.Dial("tcp", s.host, &s.config)
 		if err == nil {
 			client.Close()
 			break
+		} else {
+			tflog.Warn(s.ctx, fmt.Sprintf("While waiting for ssh to be ready %s", err.Error()))
 		}
 		if i == maxRetries-1 {
 			return fmt.Errorf("SSH not ready after %d attempts: %v", maxRetries, err)
 		}
-		logger(fmt.Sprintf("Waiting for SSH to be ready... (%d/%d)", i+1, maxRetries))
+		tflog.Info(s.ctx, fmt.Sprintf("Waiting for SSH to be ready... (%d/%d)", i+1, maxRetries))
 		time.Sleep(5 * time.Second)
 	}
 
