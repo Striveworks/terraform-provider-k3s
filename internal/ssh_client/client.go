@@ -13,17 +13,24 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func NewSSHClient(addr string, user string, pem string) (SSHClient, error) {
-	signer, err := signerFromPem([]byte(pem))
-	if err != nil {
-		return nil, err
+func NewSSHClient(addr string, user string, pem string, password string) (SSHClient, error) {
+
+	var auth ssh.AuthMethod
+	if pem != "" {
+		signer, err := signerFromPem([]byte(pem))
+		if err != nil {
+			return nil, err
+		}
+		auth = ssh.PublicKeys(signer)
+	} else {
+		auth = ssh.Password(password)
 	}
 
 	return &sshClient{host: addr,
 		config: ssh.ClientConfig{
 			User: user,
 			Auth: []ssh.AuthMethod{
-				ssh.PublicKeys(signer),
+				auth,
 			},
 			// In production, implement proper host key verification
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),

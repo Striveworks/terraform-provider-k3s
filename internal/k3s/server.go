@@ -116,7 +116,7 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(strin
 func (s *server) RunInstall(client ssh_client.SSHClient, callbacks ...func(string)) error {
 	version := ""
 	if s.version != nil {
-		version = fmt.Sprintf("INSTALL_K3S_VERSION=%s", *s.version)
+		version = fmt.Sprintf("INSTALL_K3S_VERSION=\"%s\"", *s.version)
 	}
 	commands := []string{
 		fmt.Sprintf("sudo INSTALL_K3S_SKIP_START=true %s bash /usr/local/bin/k3s-install.sh", version),

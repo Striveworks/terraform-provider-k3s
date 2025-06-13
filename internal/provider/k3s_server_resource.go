@@ -19,7 +19,7 @@ import (
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
-var _ resource.ResourceWithConfigure = &K3sServerResource{}
+var _ resource.ResourceWithConfigValidators = &K3sServerResource{}
 
 type K3sServerResource struct {
 	version *string
@@ -31,10 +31,14 @@ func NewK3sServerResource() resource.Resource {
 
 // ServerClientModel describes the resource data model.
 type ServerClientModel struct {
-	// Inputs
-	PrivateKey  types.String `tfsdk:"private_key"`
-	User        types.String `tfsdk:"user"`
-	Host        types.String `tfsdk:"host"`
+	// Auth
+	PrivateKey types.String `tfsdk:"private_key"`
+	Password   types.String `tfsdk:"password"`
+	User       types.String `tfsdk:"user"`
+	// Connection
+	Host types.String `tfsdk:"host"`
+	Port types.Int32  `tfsdk:"port"`
+	// Configs
 	K3sConfig   types.String `tfsdk:"config"`
 	K3sRegistry types.String `tfsdk:"registry"`
 	// Outputs
@@ -45,7 +49,8 @@ type ServerClientModel struct {
 }
 
 func (s *ServerClientModel) sshClient() (ssh_client.SSHClient, error) {
-	return ssh_client.NewSSHClient(fmt.Sprintf("%s:22", s.Host.ValueString()), s.User.ValueString(), s.PrivateKey.ValueString())
+	addr := fmt.Sprintf("%s:%d", s.Host.ValueString(), s.Port.ValueInt32())
+	return ssh_client.NewSSHClient(addr, s.User.ValueString(), s.PrivateKey.ValueString(), s.Password.ValueString())
 }
 
 // Configure implements resource.ResourceWithConfigure.
@@ -228,20 +233,32 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 	resp.Schema = schema.Schema{
 		MarkdownDescription: s.description().ToMarkdown(),
 		Attributes: map[string]schema.Attribute{
-			// Inputs
+			// Auth
 			"private_key": schema.StringAttribute{
 				Sensitive:           true,
-				Required:            true,
+				Optional:            true,
 				MarkdownDescription: "Value of a privatekey used to auth",
 			},
-			"host": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Hostname of the target server",
+			"password": schema.StringAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Username of the target server",
 			},
 			"user": schema.StringAttribute{
 				Required:            true,
 				MarkdownDescription: "Username of the target server",
 			},
+
+			// Conn
+			"host": schema.StringAttribute{
+				Required:            true,
+				MarkdownDescription: "Hostname of the target server",
+			},
+			"port": schema.Int32Attribute{
+				Optional:            true,
+				MarkdownDescription: "Override default SSH port (22)",
+			},
+			// Config
 			"config": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "K3s server config",
@@ -285,6 +302,38 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 }
 
 // Update implements resource.ResourceWithImportState.
-func (s *K3sServerResource) Update(context.Context, resource.UpdateRequest, *resource.UpdateResponse) {
-	panic("unimplemented")
+func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data ServerClientModel
+
+	// Read Terraform plan data into the model
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Let the k3sClient write the ssh outputs
+	// to the terraform logs
+	logger := func(out string) {
+		tflog.Info(ctx, out)
+	}
+
+	sshClient, err := data.sshClient()
+	if err != nil {
+		resp.Diagnostics.Append(fromError("Creating ssh config", err))
+		return
+	}
+
+	agent := k3s.NewK3sAgentComponent(nil, nil, nil)
+	if err := agent.RunUninstall(sshClient, logger); err != nil {
+		resp.Diagnostics.Append(fromError("Creating uninstall k3s", err))
+		return
+	}
+}
+
+// ConfigValidators implements resource.ResourceWithConfigValidators.
+func (s *K3sServerResource) ConfigValidators(ctx context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		&k3sServerAuthValdiator{},
+	}
 }
