@@ -31,7 +31,7 @@ func NewK3sAgentComponent(config map[string]any, registry map[string]any, versio
 func (a *agent) RunInstall(client ssh_client.SSHClient, callbacks ...func(string)) error {
 	version := ""
 	if a.version != nil {
-		version = fmt.Sprintf("INSTALL_K3S_VERSION=%s", *a.version)
+		version = fmt.Sprintf("INSTALL_K3S_VERSION='%s'", *a.version)
 	}
 
 	commands := []string{

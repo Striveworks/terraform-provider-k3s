@@ -35,21 +35,6 @@ provider "registry.opentofu.org/hashicorp/tls" {
   ]
 }
 
-provider "registry.opentofu.org/striveworks/k3s" {
-  version     = "0.0.3"
-  constraints = ">= 0.0.3"
-  hashes = [
-    "h1:FmuO0eLxtHjacWQibmBKIiWkBRzdRnyX4TyPihIYiXI=",
-    "zh:01868e3d639cad0215038fd74cf172f4323489677267923cd36bfb94df63f376",
-    "zh:38471f2b58dd4916bcd65362b6aae15cd8bd5262c9eb3bfba7ede1ebb3790ddd",
-    "zh:59eebe042aeb3e884a2c03e679b76f07b6cdc7eb02c852c44abba00bb1b77252",
-    "zh:650a7b7ab63b4cc0833eeeb66007df99ec06b39756ba59d6f4afd8cd2f6087b8",
-    "zh:890df766e9b839623b1f0437355032a3c006226a6c200cd911e15ee1a9014e9f",
-    "zh:9f240199e50a836cbc1993bbe21df3367b29f4ed68127ef48a59ba12fa968fc6",
-    "zh:cb86b568dc523997af3da18dfacb9909ca249bde0d6e1c3a7acbe8943c77f84f",
-  ]
-}
-
 provider "registry.opentofu.org/terraform-provider-openstack/openstack" {
   version     = "3.0.0"
   constraints = "~> 3.0.0"

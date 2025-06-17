@@ -217,9 +217,9 @@ func (k *K3sAgentResource) Read(ctx context.Context, req resource.ReadRequest, r
 		resp.Diagnostics.Append(fromError("Creating ssh config", err))
 		return
 	}
-	server := k3s.NewK3sServerComponent(nil, nil, k.version)
+	agent := k3s.NewK3sAgentComponent(nil, nil, k.version)
 
-	active, err := server.Status(sshClient)
+	active, err := agent.Status(sshClient)
 	if err != nil {
 		resp.Diagnostics.Append(fromError("Error retrieving agent status", err))
 		return
@@ -261,6 +261,10 @@ func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaReques
 				Required:            true,
 				Sensitive:           true,
 				MarkdownDescription: "Server token used for joining nodes to the cluster",
+			},
+			"registry": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "K3s server registry",
 			},
 			// Outputs
 			"id": schema.StringAttribute{
