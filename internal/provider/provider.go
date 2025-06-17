@@ -20,8 +20,11 @@ var (
 	_ provider.Provider = &K3sProvider{}
 )
 
+var global_logger func(line string) = nil
+
 // New is a helper function to simplify provider server and testing implementation.
-func New(version string) func() provider.Provider {
+func New(version string, logger func(line string)) func() provider.Provider {
+	global_logger = logger
 	return func() provider.Provider {
 		return &K3sProvider{
 			Version: version,

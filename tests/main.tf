@@ -9,7 +9,9 @@ terraform {
 }
 
 // Providers
-provider "openstack" {}
+provider "openstack" {
+  tenant_name = "sw-os-main-terraform-k3s-provider"
+}
 
 // Namings
 module "labels" {

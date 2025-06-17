@@ -34,10 +34,14 @@ provider "k3s" {}
 // The factory function is called for each Terraform CLI command to create a provider
 // server that the CLI can connect to and interact with.
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
-	"k3s": providerserver.NewProtocol6WithError(New("")()),
+	"k3s": providerserver.NewProtocol6WithError(New("", nil)()),
 }
 
-func testAccPreCheck(t *testing.T) {}
+func testAccPreCheck(t *testing.T) {
+	global_logger = func(line string) {
+		t.Log(line)
+	}
+}
 
 type StandupInputs struct {
 	Nodes  []string `json:"nodes"`

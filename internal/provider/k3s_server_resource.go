@@ -82,8 +82,10 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 
 	// Let the k3sClient write the ssh outputs
 	// to the terraform logs
-	logger := func(out string) {
-		tflog.Info(ctx, out)
+
+	logger := func(out string) { tflog.Info(ctx, out) }
+	if global_logger != nil {
+		logger = global_logger
 	}
 
 	sshClient, err := data.sshClient()
@@ -151,8 +153,9 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 
 	// Let the k3sClient write the ssh outputs
 	// to the terraform logs
-	logger := func(out string) {
-		tflog.Info(ctx, out)
+	logger := func(out string) { tflog.Info(ctx, out) }
+	if global_logger != nil {
+		logger = global_logger
 	}
 
 	sshClient, err := data.sshClient()
