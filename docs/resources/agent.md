@@ -81,6 +81,7 @@ resource "k3s_agent" "worker" {
 ### Optional
 
 - `config` (String) K3s server config
+- `registry` (String) K3s server registry
 
 ### Read-Only
 
