@@ -59,7 +59,6 @@ test: ## Runs go tests
 testacc: ## Runs go acceptence tests
 	TF_ACC=1 go test -v -cover -timeout 120m ./...
 
-
 .PHONY: init-%
 init-%: ## Stands up the openstack example provider
 	tofu -chdir=examples/$* init
@@ -69,8 +68,16 @@ apply-%: ## Stands up the openstack example provider
 	tofu -chdir=examples/$* apply -auto-approve
 
 .PHONY: destroy-%
-destroy-%: ## Destroys the infrastructure
+destroy-%: ## Destroys the openstack example provider
 	tofu -chdir=examples/$* destroy -auto-approve
+
+.PHONY: validate-%
+validate-%: ## Destroys the openstack example provider
+	tofu -chdir=examples/$* destroy -auto-approve
+
+.PHONY: docker-%
+docker-%:
+	docker build --target $* -f tests/Dockerfile -t ghcr.io/striveworks/terraform-provider-k3s:$* tests/
 
 .PHONY: help
 help:  ## Display this help

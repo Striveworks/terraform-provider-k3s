@@ -1,5 +1,7 @@
 <!-- markdownlint-disable -->
+
 # terraform-provider-k3s <picture><source media="(prefers-color-scheme: dark)" srcset="./docs/assets/logo-white.svg" ><img align="right" src="./docs/assets/logo.svg" width="150" /></a></picture>
+
 <!-- markdownlint-restore -->
 
 ## Description
@@ -18,12 +20,11 @@ terraform {
   required_providers {
     k3s = {
       source  = "striveworks/k3s"
-      version = ">= 0.0.1"
+      version = ">= 0.0.4"
     }
   }
 }
 ```
-
 
 ## System requirements
 
@@ -33,20 +34,19 @@ terraform {
 
 The provider is tested to target the following cpu and distros
 
-- [X] Ubuntu
+- [x] Ubuntu
 
 with cpu architectures
 
 - [x] amd64
 
-
 ### Provider Host Support
 
 This provider is supported to run on OS-families
 
-- [X] windows
-- [X] linux
-- [X] darwin
+- [x] windows
+- [x] linux
+- [x] darwin
 
 with cpu architectures
 
@@ -84,7 +84,6 @@ Source: <https://opensource.org/licenses/MIT>
 ## Trademarks
 
 All other trademarks referenced herein are the property of their respective owners.
-
 
 ## Copyrights
 
