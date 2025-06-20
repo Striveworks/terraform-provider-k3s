@@ -57,6 +57,7 @@ resource "k3s_server" "main" {
 - `host` (String) Hostname of the target server
 - `private_key` (String, Sensitive) Value of a privatekey used to auth
 - `user` (String) Username of the target server
+- `bin_dir` (String) Path for the K3s binary, defaults to `/usr/local/bin`
 
 ### Optional
 

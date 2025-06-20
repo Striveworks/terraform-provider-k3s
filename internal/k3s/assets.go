@@ -23,7 +23,7 @@ func ReadInstallScript() (string, error) {
 	return base64.StdEncoding.EncodeToString(script), nil
 }
 
-func tplSystemD(path string, filename string) (string, error) {
+func tplSystemD(path string, filename string, binDir string) (string, error) {
 	raw, err := assets.ReadFile(fmt.Sprintf("assets/%s.tpl", filename))
 	if err != nil {
 		return "", err
@@ -36,8 +36,10 @@ func tplSystemD(path string, filename string) (string, error) {
 	var buf bytes.Buffer
 	if err := tpl.Execute(&buf, struct {
 		ConfigPath string
+		BinDir     string
 	}{
 		ConfigPath: path,
+		BinDir:     binDir,
 	}); err != nil {
 		return "", err
 	}
@@ -46,11 +48,11 @@ func tplSystemD(path string, filename string) (string, error) {
 }
 
 // Returns the systemd file templated correctly as a b64 encoded string.
-func ReadSystemDSingleServer(path string) (string, error) {
-	return tplSystemD(path, "k3s-single.service")
+func ReadSystemDSingleServer(path string, binDir string) (string, error) {
+	return tplSystemD(path, "k3s-single.service", binDir)
 }
 
 // Returns the systemd file templated correctly as a b64 encoded string.
-func ReadSystemDSingleAgent(path string) (string, error) {
-	return tplSystemD(path, "k3s-agent.service")
+func ReadSystemDSingleAgent(path string, binDir string) (string, error) {
+	return tplSystemD(path, "k3s-agent.service", binDir)
 }

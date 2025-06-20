@@ -27,6 +27,7 @@ type server struct {
 	token      string
 	kubeConfig string
 	version    *string
+	binDir     string
 }
 
 // KubeConfig implements K3sServer.
@@ -39,8 +40,8 @@ func (s *server) Token() string {
 	return s.token
 }
 
-func NewK3sServerComponent(config map[string]any, registry map[string]any, version *string) K3sServer {
-	return &server{config: config, registry: registry, version: version}
+func NewK3sServerComponent(config map[string]any, registry map[string]any, version *string, binDir string) K3sServer {
+	return &server{config: config, registry: registry, version: version, binDir: binDir}
 }
 func (s *server) dataDir() string {
 	if dir, ok := s.config["data_dir"].(string); ok && dir != "" {
@@ -71,7 +72,7 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(strin
 		}
 	}
 
-	systemDContent, err := ReadSystemDSingleServer(configPath)
+	systemDContent, err := ReadSystemDSingleServer(configPath, s.binDir)
 	if err != nil {
 		return err
 	}
@@ -83,9 +84,9 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient, callbacks ...func(strin
 
 	commands := []string{
 		// Move over Install script
-		fmt.Sprintf("echo %q | sudo tee /usr/local/bin/k3s-install.tmp.sh > /dev/null", installContents),
-		"sudo base64 -d /usr/local/bin/k3s-install.tmp.sh | sudo tee /usr/local/bin/k3s-install.sh > /dev/null",
-		"sudo rm /usr/local/bin/k3s-install.tmp.sh",
+		fmt.Sprintf("echo %q | sudo tee %s/k3s-install.tmp.sh > /dev/null", installContents, s.binDir),
+		fmt.Sprintf("sudo base64 -d %[1]s/k3s-install.tmp.sh | sudo tee %[1]s/k3s-install.sh > /dev/null", s.binDir),
+		fmt.Sprintf("sudo rm %s/k3s-install.tmp.sh", s.binDir),
 		// Ensure directories exist
 		fmt.Sprintf("sudo mkdir -p %s", s.dataDir()),
 		fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR),
@@ -119,7 +120,7 @@ func (s *server) RunInstall(client ssh_client.SSHClient, callbacks ...func(strin
 		version = fmt.Sprintf("INSTALL_K3S_VERSION=%s", *s.version)
 	}
 	commands := []string{
-		fmt.Sprintf("sudo INSTALL_K3S_SKIP_START=true %s bash /usr/local/bin/k3s-install.sh", version),
+		fmt.Sprintf("sudo BIN_DIR=%[1]s INSTALL_K3S_SKIP_START=true %s bash %[1]s/k3s-install.sh", s.binDir, version),
 		"sudo systemctl daemon-reload",
 		"sudo systemctl start k3s",
 	}
@@ -157,7 +158,7 @@ func (s *server) RunInstall(client ssh_client.SSHClient, callbacks ...func(strin
 // RunUninstall implements K3sServer.
 func (s *server) RunUninstall(client ssh_client.SSHClient, callbacks ...func(string)) error {
 	return client.RunStream([]string{
-		"sudo bash /usr/local/bin/k3s-uninstall.sh",
+		fmt.Sprintf("sudo bash %s/k3s-uninstall.sh", s.binDir),
 	}, callbacks...)
 }
 

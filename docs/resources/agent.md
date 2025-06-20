@@ -77,6 +77,7 @@ resource "k3s_agent" "worker" {
 - `server` (String) Server host used for joining nodes to the cluster
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster
 - `user` (String) Username of the target server
+- `bin_dir` (String) Path for the K3s binary, defaults to `/usr/local/bin`
 
 ### Optional
 

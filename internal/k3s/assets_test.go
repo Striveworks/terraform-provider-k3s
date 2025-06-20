@@ -9,7 +9,7 @@ import (
 
 func TestReadSystemDSingle(t *testing.T) {
 
-	res, err := ReadSystemDSingleServer("/var/lib/rancher")
+	res, err := ReadSystemDSingleServer("/var/lib/rancher", "/usr/local/bin")
 	if err != nil {
 		t.Errorf("Error building systemd file: %s", err)
 	}
