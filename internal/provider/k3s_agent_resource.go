@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
@@ -26,6 +27,7 @@ type K3sAgentResource struct {
 // AgentClientModel describes the resource data model.
 type AgentClientModel struct {
 	// Inputs
+	BinDir      types.String `tfsdk:"bin_dir"`
 	PrivateKey  types.String `tfsdk:"private_key"`
 	User        types.String `tfsdk:"user"`
 	Host        types.String `tfsdk:"host"`
@@ -137,7 +139,7 @@ func (k *K3sAgentResource) Create(ctx context.Context, req resource.CreateReques
 		}
 	}
 
-	agent := k3s.NewK3sAgentComponent(config, registry, k.version)
+	agent := k3s.NewK3sAgentComponent(config, registry, k.version, data.BinDir.ValueString())
 
 	if err := agent.RunPreReqs(sshClient, logger); err != nil {
 		resp.Diagnostics.Append(fromError("Running k3s agent prereqs", err))
@@ -189,7 +191,7 @@ func (k *K3sAgentResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
-	agent := k3s.NewK3sAgentComponent(nil, nil, nil)
+	agent := k3s.NewK3sAgentComponent(nil, nil, nil, data.BinDir.ValueString())
 	if err := agent.RunUninstall(sshClient, logger); err != nil {
 		resp.Diagnostics.Append(fromError("Creating uninstall k3s-agent", err))
 		return
@@ -217,7 +219,7 @@ func (k *K3sAgentResource) Read(ctx context.Context, req resource.ReadRequest, r
 		resp.Diagnostics.Append(fromError("Creating ssh config", err))
 		return
 	}
-	agent := k3s.NewK3sAgentComponent(nil, nil, k.version)
+	agent := k3s.NewK3sAgentComponent(nil, nil, k.version, data.BinDir.ValueString())
 
 	active, err := agent.Status(sshClient)
 	if err != nil {
@@ -236,6 +238,12 @@ func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaReques
 
 		Attributes: map[string]schema.Attribute{
 			// Inputs
+			"bin_dir": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "Value of a path used to put the k3s binary",
+				Default:             stringdefault.StaticString("/usr/local/bin"),
+				Computed:            true,
+			},
 			"private_key": schema.StringAttribute{
 				Sensitive:           true,
 				Required:            true,
@@ -309,7 +317,7 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	agent := k3s.NewK3sAgentComponent(nil, nil, nil)
+	agent := k3s.NewK3sAgentComponent(nil, nil, nil, data.BinDir.ValueString())
 	if err := agent.RunUninstall(sshClient, logger); err != nil {
 		resp.Diagnostics.Append(fromError("Creating uninstall k3s", err))
 		return

@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
@@ -32,6 +33,7 @@ func NewK3sServerResource() resource.Resource {
 // ServerClientModel describes the resource data model.
 type ServerClientModel struct {
 	// Inputs
+	BinDir      types.String `tfsdk:"bin_dir"`
 	PrivateKey  types.String `tfsdk:"private_key"`
 	User        types.String `tfsdk:"user"`
 	Host        types.String `tfsdk:"host"`
@@ -102,7 +104,7 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 		}
 	}
 
-	server := k3s.NewK3sServerComponent(config, registry, s.version)
+	server := k3s.NewK3sServerComponent(config, registry, s.version, data.BinDir.ValueString())
 
 	if err := server.RunPreReqs(sshClient, logger); err != nil {
 		resp.Diagnostics.Append(fromError("Running k3s server prereqs", err))
@@ -156,7 +158,7 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 		return
 	}
 
-	server := k3s.NewK3sServerComponent(nil, nil, nil)
+	server := k3s.NewK3sServerComponent(nil, nil, nil, data.BinDir.ValueString())
 	if err := server.RunUninstall(sshClient, logger); err != nil {
 		resp.Diagnostics.Append(fromError("Creating uninstall k3s", err))
 		return
@@ -185,7 +187,7 @@ func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	server := k3s.NewK3sServerComponent(nil, nil, s.version)
+	server := k3s.NewK3sServerComponent(nil, nil, s.version, data.BinDir.ValueString())
 
 	active, err := server.Status(sshClient)
 	if err != nil {
@@ -229,6 +231,12 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 		MarkdownDescription: s.description().ToMarkdown(),
 		Attributes: map[string]schema.Attribute{
 			// Inputs
+			"bin_dir": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "Value of a path used to put the k3s binary",
+				Default:             stringdefault.StaticString("/usr/local/bin"),
+				Computed:            true,
+			},
 			"private_key": schema.StringAttribute{
 				Sensitive:           true,
 				Required:            true,
