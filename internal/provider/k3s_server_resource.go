@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
@@ -48,6 +49,7 @@ type ServerClientModel struct {
 	Host types.String `tfsdk:"host"`
 	Port types.Int32  `tfsdk:"port"`
 	// Configs
+	BinDir      types.String `tfsdk:"bin_dir"`
 	K3sConfig   types.String `tfsdk:"config"`
 	K3sRegistry types.String `tfsdk:"registry"`
 	// Outputs
@@ -88,7 +90,13 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 	resp.Schema = schema.Schema{
 		MarkdownDescription: s.description().ToMarkdown(),
 		Attributes: map[string]schema.Attribute{
-			// Auth
+			// Inputs
+			"bin_dir": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "Value of a path used to put the k3s binary",
+				Default:             stringdefault.StaticString("/usr/local/bin"),
+				Computed:            true,
+			},
 			"private_key": schema.StringAttribute{
 				Sensitive:           true,
 				Optional:            true,
@@ -207,7 +215,7 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	config["embedded-registry"] = registry != nil
 	tflog.Debug(ctx, "K3s registry parsed")
 
-	server := k3s.NewK3sServerComponent(ctx, config, registry, s.version)
+	server := k3s.NewK3sServerComponent(ctx, config, registry, s.version, data.BinDir.ValueString())
 
 	tflog.Info(ctx, "Running k3s server preq steps")
 	if err := server.RunPreReqs(sshClient); err != nil {
@@ -275,7 +283,7 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 		return
 	}
 
-	server := k3s.NewK3sServerComponent(ctx, nil, nil, nil)
+	server := k3s.NewK3sServerComponent(ctx, nil, nil, nil, data.BinDir.ValueString())
 	if err := server.RunUninstall(sshClient); err != nil {
 		resp.Diagnostics.AddError("Creating uninstall k3s", err.Error())
 		return
@@ -305,7 +313,7 @@ func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	server := k3s.NewK3sServerComponent(ctx, nil, nil, s.version)
+	server := k3s.NewK3sServerComponent(ctx, nil, nil, s.version, data.BinDir.ValueString())
 
 	active, err := server.Status(sshClient)
 	tflog.Info(ctx, fmt.Sprintf("Status after install %t", active))
@@ -335,7 +343,7 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	server := k3s.NewK3sServerComponent(ctx, nil, nil, nil)
+	server := k3s.NewK3sServerComponent(ctx, nil, nil, nil, data.BinDir.ValueString())
 
 	tflog.Info(ctx, "Getting k3s server status")
 	active, err := server.Status(sshClient)

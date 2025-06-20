@@ -22,10 +22,11 @@ type agent struct {
 	config  map[string]any
 	version *string
 	ctx     context.Context
+	binDir  string
 }
 
-func NewK3sAgentComponent(ctx context.Context, config map[string]any, version *string) K3sAgent {
-	return &agent{ctx: ctx, config: config, version: version}
+func NewK3sAgentComponent(ctx context.Context, config map[string]any, version *string, binDir string) K3sAgent {
+	return &agent{ctx: ctx, config: config, version: version, binDir: binDir}
 }
 
 // RunInstall implements K3sAgent.
@@ -36,7 +37,7 @@ func (a *agent) RunInstall(client ssh_client.SSHClient) error {
 	}
 
 	commands := []string{
-		fmt.Sprintf("sudo INSTALL_K3S_SKIP_START=true INSTALL_K3S_EXEC=agent %s bash /usr/local/bin/k3s-install.sh", version),
+		fmt.Sprintf("sudo BIN_DIR=%[1]s INSTALL_K3S_SKIP_START=true INSTALL_K3S_EXEC=agent %s bash %[1]s/k3s-install.sh", a.binDir, version),
 		"sudo systemctl daemon-reload",
 		"sudo systemctl start k3s-agent",
 	}
@@ -60,7 +61,7 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
 		return err
 	}
 
-	systemDContent, err := ReadSystemDSingleAgent(configPath)
+	systemDContent, err := ReadSystemDSingleAgent(configPath, a.binDir)
 	if err != nil {
 		return err
 	}
@@ -72,9 +73,9 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
 
 	commands := []string{
 		// Move over Install script
-		fmt.Sprintf("echo %q | sudo tee /usr/local/bin/k3s-install.tmp.sh > /dev/null", installContents),
-		"sudo base64 -d /usr/local/bin/k3s-install.tmp.sh | sudo tee /usr/local/bin/k3s-install.sh > /dev/null",
-		"sudo rm /usr/local/bin/k3s-install.tmp.sh",
+		fmt.Sprintf("echo %q | sudo tee %s/k3s-install.tmp.sh > /dev/null", installContents, a.binDir),
+		fmt.Sprintf("sudo base64 -d %[1]s/k3s-install.tmp.sh | sudo tee %[1]s/k3s-install.sh > /dev/null", a.binDir),
+		fmt.Sprintf("sudo rm %s/k3s-install.tmp.sh", a.binDir),
 		// Ensure directories exist
 		fmt.Sprintf("sudo mkdir -p %s", a.dataDir()),
 		fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR),
@@ -96,7 +97,7 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
 // RunUninstall implements K3sAgent.
 func (a *agent) RunUninstall(client ssh_client.SSHClient) error {
 	return client.RunStream([]string{
-		"sudo bash /usr/local/bin/k3s-agent-uninstall.sh",
+		fmt.Sprintf("sudo bash %s/k3s-agent-uninstall.sh", a.binDir),
 	})
 }
 
