@@ -59,7 +59,7 @@ test: ## Runs go tests
 .PHONY: testacc
 testacc: ## Runs go acceptence tests
 	source tools/functions.sh
-	testacc
+	testacc $(ARGS)
 
 .PHONY: testacc-destroy
 testacc-destroy: ## Runs integrations tests

@@ -3,6 +3,7 @@ module striveworks.us/terraform-provider-k3s
 go 1.24.2
 
 require (
+	github.com/caarlos0/env v3.5.0+incompatible
 	github.com/hashicorp/go-uuid v1.0.3
 	github.com/hashicorp/terraform-plugin-framework v1.15.0
 	github.com/hashicorp/terraform-plugin-log v0.9.0

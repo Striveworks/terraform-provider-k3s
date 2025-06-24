@@ -11,6 +11,7 @@ import (
 	"testing"
 	"text/template"
 
+	"github.com/caarlos0/env"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
@@ -19,9 +20,7 @@ const (
 
 	// providerConfig is a shared configuration to combine with the actual
 	// test configuration so the Inventory client is properly configured.
-	providerConfig = `
-provider "k3s" {}
-`
+	providerConfig = `provider "k3s" {}`
 )
 
 // testAccProtoV6ProviderFactories is used to instantiate a provider during acceptance testing.
@@ -33,24 +32,32 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 
 func testAccPreCheck(t *testing.T) {}
 
-type StandupInputs struct {
-	Nodes  []string `json:"nodes"`
-	SshKey string   `json:"ssh_key"`
-	User   string   `json:"user"`
+type AccTestInputs struct {
+	Nodes  []string `json:"nodes,omitempty" env:"TF_TEST_NODES"`
+	SshKey string   `json:"ssh_key,omitempty" env:"TF_TEST_SSH_KEY"`
+	User   string   `json:"user,omitempty" env:"TF_TEST_USER"`
 }
 
-func LoadInputs(f string) (StandupInputs, error) {
-	var output StandupInputs
-	file, err := os.Open(f)
-	if err != nil {
-		return output, err
+func NewAccTestInputs() (AccTestInputs, error) {
+	output := AccTestInputs{}
+	if json_file, ok := os.LookupEnv("TEST_JSON_PATH"); ok {
+		file, err := os.Open(json_file)
+		if err != nil {
+			return output, err
+		}
+
+		defer file.Close()
+
+		fileBytes, err := io.ReadAll(file)
+		if err != nil {
+			return output, err
+		}
+		if err = json.Unmarshal(fileBytes, &output); err != nil {
+			return output, err
+		}
 	}
-	defer file.Close()
-	fileBytes, err := io.ReadAll(file)
-	if err != nil {
-		return output, err
-	}
-	err = json.Unmarshal(fileBytes, &output)
+
+	err := env.Parse(&output)
 
 	return output, err
 }

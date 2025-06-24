@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"os"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -21,7 +20,7 @@ EOT
 )
 
 func TestAccK3sServerResource(t *testing.T) {
-	inputs, err := LoadInputs(os.Getenv("TEST_JSON_PATH"))
+	inputs, err := NewAccTestInputs()
 	if err != nil {
 		t.Fatalf("Could not load file from standing up acc infra: %s", err.Error())
 	}
