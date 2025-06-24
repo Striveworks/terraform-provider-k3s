@@ -76,10 +76,10 @@ resource "k3s_agent" "worker" {
 - `server` (String) K3s server address
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster
 - `user` (String) Username of the target server
-- `bin_dir` (String) Path for the K3s binary, defaults to `/usr/local/bin`
 
 ### Optional
 
+- `bin_dir` (String) Value of a path used to put the k3s binary
 - `config` (String) K3s server config
 - `password` (String, Sensitive) Username of the target server
 - `port` (Number) Override default SSH port (22)
