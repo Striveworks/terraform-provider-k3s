@@ -8,7 +8,7 @@ description: |-
   Example:
 
   provider k3s {
-  	k3s_version = "v1.33.1-k3s1" // optional
+  	k3s_version = "v1.33.1+k3s1" // optional
   }
 ---
 
@@ -22,7 +22,7 @@ Example:
 
 ```hcl
 provider k3s {
-	k3s_version = "v1.33.1-k3s1" // optional
+	k3s_version = "v1.33.1+k3s1" // optional
 }
 ```
 

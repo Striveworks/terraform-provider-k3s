@@ -222,7 +222,7 @@ func (k *K3sAgentResource) Read(ctx context.Context, req resource.ReadRequest, r
 		resp.Diagnostics.AddError("Creating ssh config", err.Error())
 		return
 	}
-	server := k3s.NewK3sAgentComponent(ctx, nil, k.version)
+	agent := k3s.NewK3sAgentComponent(ctx, nil, k.version)
 
 	active, err := agent.Status(sshClient)
 	if err != nil {

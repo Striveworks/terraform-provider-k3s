@@ -73,15 +73,16 @@ resource "k3s_agent" "worker" {
 ### Required
 
 - `host` (String) Hostname of the target server
-- `private_key` (String, Sensitive) Value of a privatekey used to auth
-- `server` (String) Server host used for joining nodes to the cluster
+- `server` (String) K3s server address
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster
 - `user` (String) Username of the target server
 
 ### Optional
 
 - `config` (String) K3s server config
-- `registry` (String) K3s server registry
+- `password` (String, Sensitive) Username of the target server
+- `port` (Number) Override default SSH port (22)
+- `private_key` (String, Sensitive) Value of a privatekey used to auth
 
 ### Read-Only
 
