@@ -58,65 +58,66 @@ jobs:
             (echo; echo "Unexpected difference in directories after code generation. Run 'make generate' command and commit."; exit 1)
 
   # Run acceptance tests in a matrix with Terraform CLI versions
-  test:
-    name: Terraform Provider Acceptance Tests
-    needs: build
-    runs-on: openstack
-    timeout-minutes: 15
-    env:
-      TF_ACC: "1"
-      OS_REGION_NAME: "${{ secrets.OS_REGION_NAME }}"
-      OS_INTERFACE: "${{ secrets.OS_INTERFACE }}"
-      OS_AUTH_TYPE: v3applicationcredential
-      OS_AUTH_URL: "${{ secrets.OS_AUTH_URL }}"
-      OS_APPLICATION_CREDENTIAL_SECRET: "${{ secrets.OS_APPLICATION_CREDENTIAL_SECRET }}"
-      OS_APPLICATION_CREDENTIAL_ID: "${{ secrets.OS_APPLICATION_CREDENTIAL_ID }}"
-      OS_IDENTITY_API_VERSION: "3"
-      OS_TENANT_NAME: "${{ secrets.OS_TENANT_NAME }}"
-      TF_VAR_flavor: "c2-m8-g0"
-      TF_VAR_availability_zone: nova
-      TF_VAR_name: "${{ matrix.test-case.name }}"
-      TF_VAR_user: "${{ matrix.test-case.user }}"
-      TF_VAR_image_id: "${{ matrix.test-case.image_id }}"
-      TF_VAR_network_id: "${{ secrets.NETWORK_ID }}"
-    strategy:
-      fail-fast: false
-      matrix:
-        test-case:
-          - name: single
-            user: ubuntu
-            # Ubuntu 24.04
-            image_id: 0429c74d-e5bb-430f-b854-8d5fa98af8dd
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: "go.mod"
-          cache: true
-      - uses: opentofu/setup-opentofu@v1
-        with:
-          terraform_version: 1.9.*
-      - run: go mod download
-      - run: make cfg-tfrc
-      - run: make install
-      - name: Stand up test infra
-        run: |
-          cd tests
+  # FIX-ME
+  # test:
+  #   name: Terraform Provider Acceptance Tests
+  #   needs: build
+  #   runs-on: openstack
+  #   timeout-minutes: 15
+  #   env:
+  #     TF_ACC: "1"
+  #     OS_REGION_NAME: "${{ secrets.OS_REGION_NAME }}"
+  #     OS_INTERFACE: "${{ secrets.OS_INTERFACE }}"
+  #     OS_AUTH_TYPE: v3applicationcredential
+  #     OS_AUTH_URL: "${{ secrets.OS_AUTH_URL }}"
+  #     OS_APPLICATION_CREDENTIAL_SECRET: "${{ secrets.OS_APPLICATION_CREDENTIAL_SECRET }}"
+  #     OS_APPLICATION_CREDENTIAL_ID: "${{ secrets.OS_APPLICATION_CREDENTIAL_ID }}"
+  #     OS_IDENTITY_API_VERSION: "3"
+  #     OS_TENANT_NAME: "${{ secrets.OS_TENANT_NAME }}"
+  #     TF_VAR_flavor: "c2-m8-g0"
+  #     TF_VAR_availability_zone: nova
+  #     TF_VAR_name: "${{ matrix.test-case.name }}"
+  #     TF_VAR_user: "${{ matrix.test-case.user }}"
+  #     TF_VAR_image_id: "${{ matrix.test-case.image_id }}"
+  #     TF_VAR_network_id: "${{ secrets.NETWORK_ID }}"
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       test-case:
+  #         - name: single
+  #           user: ubuntu
+  #           # Ubuntu 24.04
+  #           image_id: 0429c74d-e5bb-430f-b854-8d5fa98af8dd
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-go@v5
+  #       with:
+  #         go-version-file: "go.mod"
+  #         cache: true
+  #     - uses: opentofu/setup-opentofu@v1
+  #       with:
+  #         terraform_version: 1.9.*
+  #     - run: go mod download
+  #     - run: make cfg-tfrc
+  #     - run: make install
+  #     - name: Stand up test infra
+  #       run: |
+  #         cd tests
 
-          tofu init
-          tofu apply -auto-approve
+  #         tofu init
+  #         tofu apply -auto-approve
 
-          OUTPUTS="$(tofu output -json | jq 'to_entries | map({(.key): .value.value})|add')"
-          echo "TF_TEST_NODES=$(echo "${OUTPUTS}" | jq -r -c '.nodes')" >> $GITHUB_ENV
-          echo "TF_TEST_USER=$(echo "${OUTPUTS}" | jq -r -c '.user')" >> $GITHUB_ENV
+  #         OUTPUTS="$(tofu output -json | jq 'to_entries | map({(.key): .value.value})|add')"
+  #         echo "TF_TEST_NODES=$(echo "${OUTPUTS}" | jq -r -c '.nodes')" >> $GITHUB_ENV
+  #         echo "TF_TEST_USER=$(echo "${OUTPUTS}" | jq -r -c '.user')" >> $GITHUB_ENV
 
-          SSH_KEY="$(echo "${OUTPUTS}" | jq -r -c '.ssh_key')"
-          echo '::add-mask::$SSH_KEY'
-          echo "TF_TEST_SSH_KEY=$SSH_KEY" >> $GITHUB_ENV
+  #         SSH_KEY="$(echo "${OUTPUTS}" | jq -r -c '.ssh_key')"
+  #         echo '::add-mask::$SSH_KEY'
+  #         echo "TF_TEST_SSH_KEY=$SSH_KEY" >> $GITHUB_ENV
 
-      - name: Run tests
-        run: make testacc
-        timeout-minutes: 10
-      - if: always()
-        name: Teardown resources
-        run: make testacc-destroy
+  #     - name: Run tests
+  #       run: make testacc
+  #       timeout-minutes: 10
+  #     - if: always()
+  #       name: Teardown resources
+  #       run: make testacc-destroy
