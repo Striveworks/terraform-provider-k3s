@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int32default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -41,10 +42,7 @@ func (s *ServerClientModel) sshClient(ctx context.Context) (ssh_client.SSHClient
 
 // ServerClientModel describes the resource data model.
 type ServerClientModel struct {
-	// Auth
-	PrivateKey types.String `tfsdk:"private_key"`
-	Password   types.String `tfsdk:"password"`
-	User       types.String `tfsdk:"user"`
+	NodeAuth
 	// Connection
 	Host types.String `tfsdk:"host"`
 	Port types.Int32  `tfsdk:"port"`
@@ -98,8 +96,8 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 				Computed:            true,
 			},
 			"private_key": schema.StringAttribute{
-				Sensitive:           true,
 				Optional:            true,
+				Sensitive:           true,
 				MarkdownDescription: "Value of a privatekey used to auth",
 			},
 			"password": schema.StringAttribute{
@@ -111,14 +109,15 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 				Required:            true,
 				MarkdownDescription: "Username of the target server",
 			},
-
-			// Conn
+			// Connection
 			"host": schema.StringAttribute{
 				Required:            true,
 				MarkdownDescription: "Hostname of the target server",
 			},
 			"port": schema.Int32Attribute{
 				Optional:            true,
+				Computed:            true,
+				Default:             int32default.StaticInt32(22),
 				MarkdownDescription: "Override default SSH port (22)",
 			},
 			// Config
@@ -194,7 +193,6 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 
 	sshClient, err := data.sshClient(ctx)
 	if err != nil {
-		tflog.Debug(ctx, "Could not create ssh client")
 		resp.Diagnostics.AddError("Creating ssh config", err.Error())
 		return
 	}
@@ -361,6 +359,6 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 // ConfigValidators implements resource.ResourceWithConfigValidators.
 func (s *K3sServerResource) ConfigValidators(ctx context.Context) []resource.ConfigValidator {
 	return []resource.ConfigValidator{
-		&k3sServerAuthValdiator{},
+		NewK3sServerValidator(),
 	}
 }

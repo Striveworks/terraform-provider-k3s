@@ -3,6 +3,7 @@ package provider
 import (
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"gopkg.in/yaml.v2"
 )
@@ -27,4 +28,10 @@ func ParseK3sConfig(value *basetypes.StringValue) (config map[string]any, err er
 		config = make(map[string]any)
 	}
 	return
+}
+
+type NodeAuth struct {
+	PrivateKey types.String `tfsdk:"private_key"`
+	Password   types.String `tfsdk:"password"`
+	User       types.String `tfsdk:"user"`
 }

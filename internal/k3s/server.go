@@ -1,6 +1,3 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
-
 package k3s
 
 import (
@@ -44,8 +41,16 @@ func (s *server) Token() string {
 }
 
 func NewK3sServerComponent(ctx context.Context, config map[string]any, registry map[string]any, version *string, binDir string) K3sServer {
-	return &server{ctx: ctx, config: config, registry: registry, version: version, binDir: binDir}
+
+	return &server{
+		ctx:      ctx,
+		config:   config,
+		registry: registry,
+		version:  version,
+		binDir:   binDir,
+	}
 }
+
 func (s *server) dataDir() string {
 	if dir, ok := s.config["data_dir"].(string); ok && dir != "" {
 		return dir
@@ -121,12 +126,16 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient) error {
 
 // RunInstall implements K3sComponent.
 func (s *server) RunInstall(client ssh_client.SSHClient) error {
-	version := ""
-	if s.version != nil {
-		version = fmt.Sprintf("INSTALL_K3S_VERSION=\"%s\"", *s.version)
+	flags := []string{
+		"INSTALL_K3S_SKIP_START=true",
 	}
+
+	if s.version != nil {
+		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION=\"%s\"", *s.version))
+	}
+
 	commands := []string{
-		fmt.Sprintf("sudo BIN_DIR=%[1]s INSTALL_K3S_SKIP_START=true %s bash %[1]s/k3s-install.sh", s.binDir, version),
+		fmt.Sprintf("sudo BIN_DIR=%[1]s %s bash %[1]s/k3s-install.sh", s.binDir, strings.Join(flags, " ")),
 		"sudo systemctl daemon-reload",
 		"sudo systemctl start k3s",
 	}
@@ -135,16 +144,19 @@ func (s *server) RunInstall(client ssh_client.SSHClient) error {
 		return err
 	}
 
-	// Gather Items that are needed to be shared between hosts
-	token, err := client.Run("sudo cat /var/lib/rancher/k3s/server/token")
-	if err != nil {
-		return err
+	// If first node on HA, set token
+	if s.token == "" {
+		token, err := client.Run("sudo cat /var/lib/rancher/k3s/server/token")
+		if err != nil {
+			return err
+		}
+		if len(token) != 1 {
+			return fmt.Errorf("mismatched return from grapping server token")
+		}
+		s.token = token[0]
 	}
-	if len(token) != 1 {
-		return fmt.Errorf("mismatched return from grapping server token")
-	}
-	s.token = token[0]
 
+	// Retrieve kubeconfig
 	kubeconfig, err := client.Run("sudo cat /etc/rancher/k3s/k3s.yaml")
 	if err != nil {
 		return err

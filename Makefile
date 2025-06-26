@@ -54,7 +54,7 @@ fmt: ## Runs go formats
 
 .PHONY: test
 test: ## Runs go tests
-	go test -v -cover -timeout=120s -parallel=10 ./...
+	go test -skip ^TestAcc -v -cover -timeout=120s -parallel=10 ./...
 
 .PHONY: testacc
 testacc: ## Runs go acceptence tests

@@ -10,6 +10,10 @@ type k3sServerAuthValdiator struct{}
 
 var _ resource.ConfigValidator = &k3sServerAuthValdiator{}
 
+func NewK3sServerValidator() resource.ConfigValidator {
+	return &k3sServerAuthValdiator{}
+}
+
 // Description implements resource.ConfigValidator.
 func (k *k3sServerAuthValdiator) Description(context.Context) string {
 	return "Validates the authentication for the server"

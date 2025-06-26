@@ -27,10 +27,7 @@ type K3sAgentResource struct {
 
 // AgentClientModel describes the resource data model.
 type AgentClientModel struct {
-	// Auth
-	PrivateKey types.String `tfsdk:"private_key"`
-	Password   types.String `tfsdk:"password"`
-	User       types.String `tfsdk:"user"`
+	*NodeAuth
 	// Connection
 	Host   types.String `tfsdk:"host"`
 	Server types.String `tfsdk:"server"`

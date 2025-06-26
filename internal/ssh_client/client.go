@@ -141,7 +141,7 @@ func (s *sshClient) streamSingle(command string) error {
 	}
 
 	// Start the commands
-	tflog.Debug(s.ctx, fmt.Sprintf("Running ssh comannd %s", command))
+	tflog.Debug(s.ctx, fmt.Sprintf("Running ssh command %s", command))
 	if err := session.Start(command); err != nil {
 		return fmt.Errorf("cannot start cmd '%s': %s", command, err)
 	}

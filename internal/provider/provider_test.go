@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"testing"
 	"text/template"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -30,8 +29,6 @@ provider "k3s" {}
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
 	"k3s": providerserver.NewProtocol6WithError(New("")()),
 }
-
-func testAccPreCheck(t *testing.T) {}
 
 type StandupInputs struct {
 	Nodes  []string `json:"nodes"`

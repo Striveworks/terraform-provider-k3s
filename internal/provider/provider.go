@@ -127,5 +127,6 @@ func (p *K3sProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewK3sServerResource,
 		NewK3sAgentResource,
+		NewK3sHaServerResource,
 	}
 }

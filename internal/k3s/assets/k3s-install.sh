@@ -1,6 +1,4 @@
 #!/bin/sh
-# Copyright (c) HashiCorp, Inc.
-# SPDX-License-Identifier: MPL-2.0
 
 set -e
 set -o noglob
@@ -104,16 +102,13 @@ STORAGE_URL=https://k3s-ci-builds.s3.amazonaws.com
 DOWNLOADER=
 
 # --- helper functions for logs ---
-info()
-{
+info() {
     echo '[INFO] ' "$@"
 }
-warn()
-{
+warn() {
     echo '[WARN] ' "$@" >&2
 }
-fatal()
-{
+fatal() {
     echo '[ERROR] ' "$@" >&2
     exit 1
 }
@@ -124,7 +119,7 @@ verify_system() {
         HAS_OPENRC=true
         return
     fi
-    if [ -x /bin/systemctl ] || type systemctl > /dev/null 2>&1; then
+    if [ -x /bin/systemctl ] || type systemctl >/dev/null 2>&1; then
         HAS_SYSTEMD=true
         return
     fi
@@ -159,13 +154,11 @@ escape_dq() {
 # --- ensures $K3S_URL is empty or begins with https://, exiting fatally otherwise ---
 verify_k3s_url() {
     case "${K3S_URL}" in
-        "")
-            ;;
-        https://*)
-            ;;
-        *)
-            fatal "Only https:// URLs are supported for K3S_URL (have ${K3S_URL})"
-            ;;
+    "") ;;
+    https://*) ;;
+    *)
+        fatal "Only https:// URLs are supported for K3S_URL (have ${K3S_URL})"
+        ;;
     esac
 }
 
@@ -173,21 +166,21 @@ verify_k3s_url() {
 setup_env() {
     # --- use command args if passed or create default ---
     case "$1" in
-        # --- if we only have flags discover if command should be server or agent ---
-        (-*|"")
-            if [ -z "${K3S_URL}" ]; then
-                CMD_K3S=server
-            else
-                if [ -z "${K3S_TOKEN}" ] && [ -z "${K3S_TOKEN_FILE}" ]; then
-                    fatal "Defaulted k3s exec command to 'agent' because K3S_URL is defined, but K3S_TOKEN or K3S_TOKEN_FILE is not defined."
-                fi
-                CMD_K3S=agent
+    # --- if we only have flags discover if command should be server or agent ---
+    -* | "")
+        if [ -z "${K3S_URL}" ]; then
+            CMD_K3S=server
+        else
+            if [ -z "${K3S_TOKEN}" ] && [ -z "${K3S_TOKEN_FILE}" ]; then
+                fatal "Defaulted k3s exec command to 'agent' because K3S_URL is defined, but K3S_TOKEN or K3S_TOKEN_FILE is not defined."
             fi
+            CMD_K3S=agent
+        fi
         ;;
-        # --- command is provided ---
-        (*)
-            CMD_K3S=$1
-            shift
+    # --- command is provided ---
+    *)
+        CMD_K3S=$1
+        shift
         ;;
     esac
 
@@ -207,8 +200,8 @@ setup_env() {
     fi
 
     # --- check for invalid characters in system name ---
-    valid_chars=$(printf '%s' "${SYSTEM_NAME}" | sed -e 's/[][!#$%&()*;<=>?\_`{|}/[:space:]]/^/g;' )
-    if [ "${SYSTEM_NAME}" != "${valid_chars}"  ]; then
+    valid_chars=$(printf '%s' "${SYSTEM_NAME}" | sed -e 's/[][!#$%&()*;<=>?\_`{|}/[:space:]]/^/g;')
+    if [ "${SYSTEM_NAME}" != "${valid_chars}" ]; then
         invalid_chars=$(printf '%s' "${valid_chars}" | sed -e 's/[^^]/ /g')
         fatal "Invalid characters for system name:
             ${SYSTEM_NAME}
@@ -302,32 +295,33 @@ setup_verify_arch() {
         ARCH=$(uname -m)
     fi
     case $ARCH in
-        amd64)
-            ARCH=amd64
-            SUFFIX=
-            ;;
-        x86_64)
-            ARCH=amd64
-            SUFFIX=
-            ;;
-        arm64)
-            ARCH=arm64
-            SUFFIX=-${ARCH}
-            ;;
-        s390x)
-            ARCH=s390x
-            SUFFIX=-${ARCH}
-            ;;
-        aarch64)
-            ARCH=arm64
-            SUFFIX=-${ARCH}
-            ;;
-        arm*)
-            ARCH=arm
-            SUFFIX=-${ARCH}hf
-            ;;
-        *)
-            fatal "Unsupported architecture $ARCH"
+    amd64)
+        ARCH=amd64
+        SUFFIX=
+        ;;
+    x86_64)
+        ARCH=amd64
+        SUFFIX=
+        ;;
+    arm64)
+        ARCH=arm64
+        SUFFIX=-${ARCH}
+        ;;
+    s390x)
+        ARCH=s390x
+        SUFFIX=-${ARCH}
+        ;;
+    aarch64)
+        ARCH=arm64
+        SUFFIX=-${ARCH}
+        ;;
+    arm*)
+        ARCH=arm
+        SUFFIX=-${ARCH}hf
+        ;;
+    *)
+        fatal "Unsupported architecture $ARCH"
+        ;;
     esac
 }
 
@@ -370,15 +364,15 @@ get_release_version() {
         info "Finding release for channel ${INSTALL_K3S_CHANNEL}"
         version_url="${INSTALL_K3S_CHANNEL_URL}/${INSTALL_K3S_CHANNEL}"
         case $DOWNLOADER in
-            curl)
-                VERSION_K3S=$(curl -w '%{url_effective}' -L -s -S ${version_url} -o /dev/null | sed -e 's|.*/||')
-                ;;
-            wget)
-                VERSION_K3S=$(wget -SqO /dev/null ${version_url} 2>&1 | grep -i Location | sed -e 's|.*/||')
-                ;;
-            *)
-                fatal "Incorrect downloader executable '$DOWNLOADER'"
-                ;;
+        curl)
+            VERSION_K3S=$(curl -w '%{url_effective}' -L -s -S ${version_url} -o /dev/null | sed -e 's|.*/||')
+            ;;
+        wget)
+            VERSION_K3S=$(wget -SqO /dev/null ${version_url} 2>&1 | grep -i Location | sed -e 's|.*/||')
+            ;;
+        *)
+            fatal "Incorrect downloader executable '$DOWNLOADER'"
+            ;;
         esac
     fi
     info "Using ${VERSION_K3S} as release"
@@ -393,22 +387,22 @@ get_k3s_selinux_version() {
     verify_downloader curl || verify_downloader wget || fatal 'Can not find curl or wget for downloading files'
 
     case $DOWNLOADER in
-        curl)
-            DOWNLOADER_OPTS="-s"
-            ;;
-        wget)
-            DOWNLOADER_OPTS="-q -O -"
-            ;;
-        *)
-            fatal "Incorrect downloader executable '$DOWNLOADER'"
-            ;;
+    curl)
+        DOWNLOADER_OPTS="-s"
+        ;;
+    wget)
+        DOWNLOADER_OPTS="-q -O -"
+        ;;
+    *)
+        fatal "Incorrect downloader executable '$DOWNLOADER'"
+        ;;
     esac
     for i in {1..3}; do
         set +e
         if [ "${rpm_channel}" = "testing" ]; then
-            version=$(timeout 5 ${DOWNLOADER} ${DOWNLOADER_OPTS} https://api.github.com/repos/k3s-io/k3s-selinux/releases |  grep browser_download_url | awk '{ print $2 }' | grep -oE "[^\/]+${rpm_target}\.noarch\.rpm" | head -n 1)
+            version=$(timeout 5 ${DOWNLOADER} ${DOWNLOADER_OPTS} https://api.github.com/repos/k3s-io/k3s-selinux/releases | grep browser_download_url | awk '{ print $2 }' | grep -oE "[^\/]+${rpm_target}\.noarch\.rpm" | head -n 1)
         else
-            version=$(timeout 5 ${DOWNLOADER} ${DOWNLOADER_OPTS} https://api.github.com/repos/k3s-io/k3s-selinux/releases/latest |  grep browser_download_url | awk '{ print $2 }' | grep -oE "[^\/]+${rpm_target}\.noarch\.rpm")
+            version=$(timeout 5 ${DOWNLOADER} ${DOWNLOADER_OPTS} https://api.github.com/repos/k3s-io/k3s-selinux/releases/latest | grep browser_download_url | awk '{ print $2 }' | grep -oE "[^\/]+${rpm_target}\.noarch\.rpm")
         fi
         set -e
         if [ "${version}" != "" ]; then
@@ -434,19 +428,19 @@ download() {
     status=1
 
     case $DOWNLOADER in
-        curl)
-            curl -o $1 -sfL $2
-            status=$?
-            ;;
-        wget)
-            wget -qO $1 $2
-            status=$?
-            ;;
-        *)
-	    # Enable exit-on-error for fatal to execute
-	    set -e
-            fatal "Incorrect executable '$DOWNLOADER'"
-            ;;
+    curl)
+        curl -o $1 -sfL $2
+        status=$?
+        ;;
+    wget)
+        wget -qO $1 $2
+        status=$?
+        ;;
+    *)
+        # Enable exit-on-error for fatal to execute
+        set -e
+        fatal "Incorrect executable '$DOWNLOADER'"
+        ;;
     esac
 
     # Re-enable exit-on-error
@@ -461,7 +455,7 @@ download_hash() {
     if [ -n "${INSTALL_K3S_PR}" ]; then
         info "Downloading hash ${GITHUB_PR_URL}"
         curl -s -o ${TMP_ZIP} -H "Authorization: Bearer $GITHUB_TOKEN" -L ${GITHUB_PR_URL}
-        unzip -p ${TMP_ZIP} k3s.sha256sum > ${TMP_HASH}
+        unzip -p ${TMP_ZIP} k3s.sha256sum >${TMP_HASH}
     else
         if [ -n "${INSTALL_K3S_COMMIT}" ]; then
             HASH_URL=${STORAGE_URL}/k3s${SUFFIX}-${INSTALL_K3S_COMMIT}.sha256sum
@@ -530,7 +524,7 @@ download_binary() {
             curl -s -f -o ${TMP_ZIP} -H "Authorization: Bearer $GITHUB_TOKEN" -L ${GITHUB_PR_URL}
         fi
         # extract k3s binary from zip
-        unzip -p ${TMP_ZIP} k3s > ${TMP_BIN}
+        unzip -p ${TMP_ZIP} k3s >${TMP_BIN}
         return
     elif [ -n "${INSTALL_K3S_COMMIT}" ]; then
         BIN_URL=${STORAGE_URL}/k3s${SUFFIX}-${INSTALL_K3S_COMMIT}
@@ -562,15 +556,15 @@ setup_binary() {
 # --- setup selinux policy ---
 setup_selinux() {
     case ${INSTALL_K3S_CHANNEL} in
-        *testing)
-            rpm_channel=testing
-            ;;
-        *latest)
-            rpm_channel=latest
-            ;;
-        *)
-            rpm_channel=stable
-            ;;
+    *testing)
+        rpm_channel=testing
+        ;;
+    *latest)
+        rpm_channel=latest
+        ;;
+    *)
+        rpm_channel=stable
+        ;;
     esac
 
     rpm_site="rpm.rancher.io"
@@ -579,21 +573,21 @@ setup_selinux() {
     fi
 
     [ -r /etc/os-release ] && . /etc/os-release
-    if [ `expr "${ID_LIKE}" : ".*suse.*"` != 0 ]; then
+    if [ $(expr "${ID_LIKE}" : ".*suse.*") != 0 ]; then
         rpm_target=sle
         rpm_site_infix=microos
         package_installer=zypper
-        if [ "${ID_LIKE:-}" = suse ] && ( [ "${VARIANT_ID:-}" = sle-micro ] || [ "${ID:-}" = sle-micro ] ); then
+        if [ "${ID_LIKE:-}" = suse ] && ([ "${VARIANT_ID:-}" = sle-micro ] || [ "${ID:-}" = sle-micro ]); then
             rpm_target=sle
             rpm_site_infix=slemicro
             package_installer=zypper
         fi
-    elif [ "${ID_LIKE:-}" = coreos ] || [ "${VARIANT_ID:-}" = coreos ] || [ "${VARIANT_ID:-}" = "iot" ] || \
-         { { [ "${ID:-}" = fedora ] || [ "${ID_LIKE:-}" = fedora ]; } && [ -n "${OSTREE_VERSION:-}" ]; }; then
+    elif [ "${ID_LIKE:-}" = coreos ] || [ "${VARIANT_ID:-}" = coreos ] || [ "${VARIANT_ID:-}" = "iot" ] ||
+        { { [ "${ID:-}" = fedora ] || [ "${ID_LIKE:-}" = fedora ]; } && [ -n "${OSTREE_VERSION:-}" ]; }; then
         rpm_target=coreos
         rpm_site_infix=coreos
         package_installer=rpm-ostree
-    elif [ "${VERSION_ID%%.*}" = "7" ] || ( [ "${ID:-}" = amzn ] && [ "${VERSION_ID%%.*}" = "2" ] ); then
+    elif [ "${VERSION_ID%%.*}" = "7" ] || ([ "${ID:-}" = amzn ] && [ "${VERSION_ID%%.*}" = "2" ]); then
         rpm_target=el7
         rpm_site_infix=centos/7
         package_installer=yum
@@ -630,7 +624,7 @@ setup_selinux() {
 
     policy_error=fatal
     if [ "$INSTALL_K3S_SELINUX_WARN" = true ] || [ "${ID_LIKE:-}" = coreos ] ||
-       [ "${VARIANT_ID:-}" = coreos ] || [ "${VARIANT_ID:-}" = iot ]; then
+        [ "${VARIANT_ID:-}" = coreos ] || [ "${VARIANT_ID:-}" = iot ]; then
         policy_error=warn
     fi
 
@@ -639,7 +633,7 @@ setup_selinux() {
             $policy_error "Failed to apply container_runtime_exec_t to ${BIN_DIR}/k3s, ${policy_hint}"
         fi
     elif [ ! -f /usr/share/selinux/packages/k3s.pp ]; then
-        if [ -x /usr/sbin/transactional-update ] || [ "${ID_LIKE:-}" = coreos ] || \
+        if [ -x /usr/sbin/transactional-update ] || [ "${ID_LIKE:-}" = coreos ] ||
             { { [ "${ID:-}" = fedora ] || [ "${ID_LIKE:-}" = fedora ]; } && [ -n "${OSTREE_VERSION:-}" ]; }; then
             warn "Please reboot your machine to activate the changes and avoid data loss."
         else
@@ -650,7 +644,7 @@ setup_selinux() {
 
 install_selinux_rpm() {
     if [ -r /etc/redhat-release ] || [ -r /etc/centos-release ] || [ -r /etc/oracle-release ] ||
-       [ -r /etc/fedora-release ] || [ -r /etc/system-release ] || [ "${ID_LIKE%%[ ]*}" = "suse" ]; then
+        [ -r /etc/fedora-release ] || [ -r /etc/system-release ] || [ "${ID_LIKE%%[ ]*}" = "suse" ]; then
         repodir=/etc/yum.repos.d
         if [ -d /etc/zypp/repos.d ]; then
             repodir=/etc/zypp/repos.d
@@ -662,7 +656,7 @@ install_selinux_rpm() {
             $SUDO yum install -y yum-utils
             $SUDO yum-config-manager --enable rhel-7-server-extras-rpms
         fi
-        $SUDO tee ${repodir}/rancher-k3s-common.repo >/dev/null << EOF
+        $SUDO tee ${repodir}/rancher-k3s-common.repo >/dev/null <<EOF
 [rancher-k3s-common-${2}]
 name=Rancher K3s Common (${2})
 baseurl=https://${1}/k3s/${2}/common/${4}/noarch
@@ -694,7 +688,7 @@ EOF
         if [ "${rpm_installer}" = "yum" ] && [ -x /usr/bin/dnf ]; then
             rpm_installer=dnf
         fi
-	    if rpm -q --quiet k3s-selinux; then
+        if rpm -q --quiet k3s-selinux; then
             # remove k3s-selinux module before upgrade to allow container-selinux to upgrade safely
             if check_available_upgrades container-selinux ${3} && check_available_upgrades k3s-selinux ${3}; then
                 MODULE_PRIORITY=$($SUDO semodule --list=full | grep k3s | cut -f1 -d" ")
@@ -712,15 +706,15 @@ EOF
 check_available_upgrades() {
     set +e
     case ${2} in
-        sle)
-            available_upgrades=$($SUDO zypper -q -t -s 11 se -s -u --type package $1 | tail -n 1 | grep -v "No matching" | awk '{print $3}')
-            ;;
-        coreos)
-            # currently rpm-ostree does not support search functionality https://github.com/coreos/rpm-ostree/issues/1877
-            ;;
-        *)
-            available_upgrades=$($SUDO yum -q --refresh list $1 --upgrades | tail -n 1 | awk '{print $2}')
-            ;;
+    sle)
+        available_upgrades=$($SUDO zypper -q -t -s 11 se -s -u --type package $1 | tail -n 1 | grep -v "No matching" | awk '{print $3}')
+        ;;
+    coreos)
+        # currently rpm-ostree does not support search functionality https://github.com/coreos/rpm-ostree/issues/1877
+        ;;
+    *)
+        available_upgrades=$($SUDO yum -q --refresh list $1 --upgrades | tail -n 1 | awk '{print $2}')
+        ;;
     esac
     set -e
     if [ -n "${available_upgrades}" ]; then
@@ -731,9 +725,9 @@ check_available_upgrades() {
 # --- download and verify k3s ---
 download_and_verify() {
     if can_skip_download_binary; then
-       info 'Skipping k3s download and verify'
-       verify_k3s_is_executable
-       return
+        info 'Skipping k3s download and verify'
+        verify_k3s_is_executable
+        return
     fi
 
     setup_verify_arch
@@ -776,7 +770,7 @@ create_symlinks() {
 create_killall() {
     [ "${INSTALL_K3S_BIN_DIR_READ_ONLY}" = true ] && return
     info "Creating killall script ${KILLALL_K3S_SH}"
-    $SUDO tee ${KILLALL_K3S_SH} >/dev/null << \EOF
+    $SUDO tee ${KILLALL_K3S_SH} >/dev/null <<\EOF
 #!/bin/sh
 [ $(id -u) -eq 0 ] || exec sudo --preserve-env=K3S_DATA_DIR $0 $@
 
@@ -877,7 +871,7 @@ EOF
 create_uninstall() {
     [ "${INSTALL_K3S_BIN_DIR_READ_ONLY}" = true ] && return
     info "Creating uninstall script ${UNINSTALL_K3S_SH}"
-    $SUDO tee ${UNINSTALL_K3S_SH} >/dev/null << EOF
+    $SUDO tee ${UNINSTALL_K3S_SH} >/dev/null <<EOF
 #!/bin/sh
 set -x
 [ \$(id -u) -eq 0 ] || exec sudo --preserve-env=K3S_DATA_DIR \$0 \$@
@@ -979,7 +973,7 @@ create_env_file() {
 # --- write systemd service file ---
 create_systemd_service_file() {
     info "systemd: Creating service file ${FILE_K3S_SERVICE}"
-    $SUDO tee ${FILE_K3S_SERVICE} >/dev/null << EOF
+    $SUDO tee ${FILE_K3S_SERVICE} >/dev/null <<EOF
 [Unit]
 Description=Lightweight Kubernetes
 Documentation=https://k3s.io
@@ -1020,7 +1014,7 @@ create_openrc_service_file() {
     LOG_FILE=/var/log/${SYSTEM_NAME}.log
 
     info "openrc: Creating service file ${FILE_K3S_SERVICE}"
-    $SUDO tee ${FILE_K3S_SERVICE} >/dev/null << EOF
+    $SUDO tee ${FILE_K3S_SERVICE} >/dev/null <<EOF
 #!/sbin/openrc-run
 
 depend() {
@@ -1052,7 +1046,7 @@ set +o allexport
 EOF
     $SUDO chmod 0755 ${FILE_K3S_SERVICE}
 
-    $SUDO tee /etc/logrotate.d/${SYSTEM_NAME} >/dev/null << EOF
+    $SUDO tee /etc/logrotate.d/${SYSTEM_NAME} >/dev/null <<EOF
 ${LOG_FILE} {
 	missingok
 	notifempty
@@ -1102,7 +1096,7 @@ openrc_start() {
 }
 
 has_working_xtables() {
-    if $SUDO sh -c "command -v \"$1-save\"" 1> /dev/null && $SUDO sh -c "command -v \"$1-restore\"" 1> /dev/null; then
+    if $SUDO sh -c "command -v \"$1-save\"" 1>/dev/null && $SUDO sh -c "command -v \"$1-restore\"" 1>/dev/null; then
         if $SUDO $1-save 2>/dev/null | grep -q '^-A CNI-HOSTPORT-MASQ -j MASQUERADE$'; then
             warn "Host $1-save/$1-restore tools are incompatible with existing rules"
         else

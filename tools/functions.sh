@@ -41,6 +41,7 @@ function testacc() {
         TF_LOG_PATH="${ROOT_DIR}/acc-test.log" \
         TF_ACC=1 \
         go test \
+        -run ^TestAcc \
         -parallel 5 \
         -v -cover \
         -timeout 30m ./... >"${ROOT_DIR}/acc-test.results.log" 2>&1 &
