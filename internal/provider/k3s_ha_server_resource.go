@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int32default"
@@ -96,6 +97,63 @@ type HaServerClientModel struct {
 	Active     types.Map    `tfsdk:"active"`
 }
 
+func (h *HaServerClientModel) parseNodes(ctx context.Context) (diag.Diagnostics, []HaServerNodeModel) {
+	nodes := make([]HaServerNodeModel, 0, len(h.Nodes.Elements()))
+
+	diag := h.Nodes.ElementsAs(ctx, &nodes, false)
+	if diag.ErrorsCount() > 0 {
+		return diag, []HaServerNodeModel{}
+	}
+
+	var nodesOut []attr.Value
+	for _, node := range nodes {
+		nodesOut = append(nodesOut, types.ObjectValueMust(ModelAttrs, map[string]attr.Value{
+			"host": node.Host,
+			"port": func() attr.Value {
+				if node.Port.IsNull() {
+					return types.Int32Value(22)
+				} else {
+					return node.Port
+				}
+			}(),
+			"private_key": func() attr.Value {
+				if node.PrivateKey.IsNull() {
+					return h.PrivateKey
+				} else {
+					return node.PrivateKey
+				}
+			}(),
+			"password": func() attr.Value {
+				if node.Password.IsNull() {
+					return h.Password
+				} else {
+					return node.Password
+				}
+			}(),
+			"user": func() attr.Value {
+				if node.User.IsNull() {
+					return h.User
+				} else {
+					return node.User
+				}
+			}(),
+			"tls_san": node.TlsSan,
+			"bin_dir": func() attr.Value {
+				if node.BinDir.IsNull() {
+					return types.StringValue("/usr/local/bin")
+				} else {
+					return node.BinDir
+				}
+			}(),
+		}))
+	}
+
+	h.Nodes = types.ListValueMust(types.ObjectType{AttrTypes: ModelAttrs}, nodesOut)
+	// Set again with new defaults
+	diag = h.Nodes.ElementsAs(ctx, &nodes, false)
+	return diag, nodes
+}
+
 func (s *K3sHaServerResource) description() MarkdownDescription {
 	return `
 Creates a K3s Highly Available Server
@@ -104,13 +162,25 @@ Example:
 
 !!!hcl
 resource "k3s_ha_server" "main" {
+  user        = "ubuntu"
+  private_key = var.ssh_key
+
+  node {
+    host = var.nodes[0]
+  }
+  node {
+    host = var.nodes[1]
+  }
+  node {
+    host = var.nodes[2]
+  }
 }
 !!!
 `
 }
 
 // Schema implements resource.ResourceWithImportState.
-func (h *K3sHaServerResource) Schema(context context.Context, resource resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (h *K3sHaServerResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: h.description().ToMarkdown(),
 		Attributes: map[string]schema.Attribute{
@@ -127,6 +197,7 @@ func (h *K3sHaServerResource) Schema(context context.Context, resource resource.
 			},
 			"user": schema.StringAttribute{
 				Optional:            true,
+				Computed:            true,
 				MarkdownDescription: "Username of the target server, can be overridden in each node block",
 			},
 			// Config
@@ -198,15 +269,18 @@ func (h *K3sHaServerResource) Schema(context context.Context, resource resource.
 							Optional:            true,
 							Sensitive:           true,
 							MarkdownDescription: "Value of a privatekey used to auth",
+							Computed:            true,
 						},
 						"password": schema.StringAttribute{
 							Optional:            true,
 							Sensitive:           true,
 							MarkdownDescription: "Username of the target server",
+							Computed:            true,
 						},
 						"user": schema.StringAttribute{
 							Optional:            true,
 							MarkdownDescription: "Username of the target server",
+							Computed:            true,
 						},
 						// Config
 						"tls_san": schema.StringAttribute{
@@ -260,35 +334,10 @@ func (s *K3sHaServerResource) Create(ctx context.Context, req resource.CreateReq
 	}
 
 	// Read node block data into the model
-	nodes := make([]HaServerNodeModel, 0, len(data.Nodes.Elements()))
-	resp.Diagnostics.Append(data.Nodes.ElementsAs(ctx, &nodes, false)...)
+	diag, nodes := data.parseNodes(ctx)
+	resp.Diagnostics.Append(diag...)
 	if resp.Diagnostics.HasError() {
 		return
-	}
-
-	var nodesOut []attr.Value
-	for _, node := range nodes {
-		nodesOut = append(nodesOut, types.ObjectValueMust(ModelAttrs, map[string]attr.Value{
-			"host": node.Host,
-			"port": func() attr.Value {
-				if node.Port.IsNull() {
-					return types.Int32Value(22)
-				} else {
-					return node.Port
-				}
-			}(),
-			"private_key": node.PrivateKey,
-			"password":    node.Password,
-			"user":        node.User,
-			"tls_san":     node.TlsSan,
-			"bin_dir": func() attr.Value {
-				if node.BinDir.IsNull() {
-					return types.StringValue("/usr/local/bin")
-				} else {
-					return node.BinDir
-				}
-			}(),
-		}))
 	}
 
 	tflog.Info(ctx, "Creating ssh clients")
@@ -334,25 +383,31 @@ func (s *K3sHaServerResource) Create(ctx context.Context, req resource.CreateReq
 			node := nodes[idx]
 			if _, err := s.configureNode(ctx, sshClients[idx], registry, nodeConfig, node.BinDir.ValueString(), node); err != nil {
 				activeMap[nodes[idx].Host.ValueString()] = types.BoolValue(false)
-				errs <- fmt.Errorf("error configuring node %s: %w", nodes[idx].Host.ValueString(), err)
+				errs <- fmt.Errorf("error configuring node %s: %w", node.Host.ValueString(), err)
 				return
 			}
-			activeMap[nodes[idx].Host.ValueString()] = types.BoolValue(true)
+			activeMap[node.Host.ValueString()] = types.BoolValue(true)
 		}(i)
 	}
 
 	// Wait for all goroutines to finish
-	for i := 1; i < len(nodes); i++ {
+	for i := 1; i < len(nodes)-1; i++ {
 		<-done
 	}
-	close(errs)
+	close(done)
 
 	// Collect errors if any
-	for err := range errs {
-		if err != nil {
-			resp.Diagnostics.AddError("Configuring server node", err.Error())
+	for i := 1; i < len(nodes); i++ {
+		select {
+		case err := <-errs:
+			if err != nil {
+				resp.Diagnostics.AddError("Configuring server node", err.Error())
+			}
+		default:
+			// No error to collect
 		}
 	}
+	close(errs)
 
 	if resp.Diagnostics.HasError() {
 		return
@@ -362,7 +417,6 @@ func (s *K3sHaServerResource) Create(ctx context.Context, req resource.CreateReq
 		data.BinDir = types.StringValue("/usr/local/bin")
 	}
 
-	data.Nodes = types.ListValueMust(types.ObjectType{AttrTypes: ModelAttrs}, nodesOut)
 	data.Token = types.StringValue(api.token)
 	data.Active, _ = types.MapValue(types.BoolType, activeMap)
 	data.Id = types.StringValue(api.token)
@@ -373,8 +427,68 @@ func (s *K3sHaServerResource) Create(ctx context.Context, req resource.CreateReq
 }
 
 // Delete implements resource.ResourceWithConfigValidators.
-func (s *K3sHaServerResource) Delete(context.Context, resource.DeleteRequest, *resource.DeleteResponse) {
+func (s *K3sHaServerResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data HaServerClientModel
 
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Read node block data into the model
+	diag, nodes := data.parseNodes(ctx)
+	resp.Diagnostics.Append(diag...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Build each node's ssh client
+	var sshClients []ssh_client.SSHClient
+	for _, node := range nodes {
+		client, err := node.sshClient(ctx, data.NodeAuth)
+		if err != nil {
+			resp.Diagnostics.AddError("Building ssh clients", fmt.Sprintf("Could not create ssh client: %v", err.Error()))
+		}
+		sshClients = append(sshClients, client)
+	}
+
+	errs := make(chan error, len(nodes)-1)
+	done := make(chan struct{}, len(nodes)-1)
+
+	for i := range nodes {
+		go func(idx int) {
+			defer func() { done <- struct{}{} }()
+			node := nodes[idx]
+
+			if err := k3s.NewK3sServerComponent(
+				ctx, nil, nil, s.version, node.BinDir.ValueString(),
+			).RunUninstall(sshClients[idx]); err != nil {
+				errs <- fmt.Errorf("error configuring node %s: %w", node.Host.ValueString(), err)
+				return
+			}
+
+		}(i)
+	}
+
+	// Wait for all goroutines to finish
+	for range nodes {
+		<-done
+	}
+	close(done)
+	// Collect errors if any
+	for range nodes {
+		select {
+		case err := <-errs:
+			if err != nil {
+				resp.Diagnostics.AddError("Configuring server node", err.Error())
+			}
+		default:
+			// No error to collect
+		}
+	}
+	close(errs)
+
+	resp.Diagnostics.Append(req.State.Set(ctx, &data)...)
 }
 
 // Metadata implements resource.ResourceWithConfigValidators.
@@ -383,7 +497,74 @@ func (s *K3sHaServerResource) Metadata(_ context.Context, req resource.MetadataR
 }
 
 // Read implements resource.ResourceWithConfigValidators.
-func (s *K3sHaServerResource) Read(context.Context, resource.ReadRequest, *resource.ReadResponse) {
+func (s *K3sHaServerResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var data HaServerClientModel
+	activeMap := make(map[string]attr.Value)
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Read node block data into the model
+	diag, nodes := data.parseNodes(ctx)
+	resp.Diagnostics.Append(diag...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Build each node's ssh client
+	var sshClients []ssh_client.SSHClient
+	for _, node := range nodes {
+		client, err := node.sshClient(ctx, data.NodeAuth)
+		if err != nil {
+			resp.Diagnostics.AddError("Building ssh clients", fmt.Sprintf("Could not create ssh client: %v", err.Error()))
+		}
+		sshClients = append(sshClients, client)
+	}
+
+	errs := make(chan error, len(nodes)-1)
+	done := make(chan struct{}, len(nodes)-1)
+
+	for i := range nodes {
+		go func(idx int) {
+			defer func() { done <- struct{}{} }()
+			node := nodes[idx]
+
+			status, err := k3s.NewK3sServerComponent(
+				ctx, nil, nil, s.version, node.BinDir.ValueString(),
+			).Status(sshClients[idx])
+
+			if err != nil {
+				activeMap[nodes[idx].Host.ValueString()] = types.BoolValue(false)
+				errs <- fmt.Errorf("error configuring node %s: %w", node.Host.ValueString(), err)
+				return
+			}
+
+			activeMap[node.Host.ValueString()] = types.BoolValue(status)
+		}(i)
+	}
+
+	// Wait for all goroutines to finish
+	for range nodes {
+		<-done
+	}
+	close(done)
+	// Collect errors if any
+	for range nodes {
+		select {
+		case err := <-errs:
+			if err != nil {
+				resp.Diagnostics.AddError("Configuring server node", err.Error())
+			}
+		default:
+			// No error to collect
+		}
+	}
+	close(errs)
+
+	data.Active, _ = types.MapValue(types.BoolType, activeMap)
+	resp.Diagnostics.Append(req.State.Set(ctx, &data)...)
 
 }
 

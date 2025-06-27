@@ -7,6 +7,18 @@ description: |-
   Example:
 
   resource "k3s_ha_server" "main" {
+    user        = "ubuntu"
+    private_key = var.ssh_key
+
+    node {
+      host = var.nodes[0]
+    }
+    node {
+      host = var.nodes[1]
+    }
+    node {
+      host = var.nodes[2]
+    }
   }
 ---
 
@@ -18,6 +30,18 @@ Example:
 
 ```hcl
 resource "k3s_ha_server" "main" {
+  user        = "ubuntu"
+  private_key = var.ssh_key
+
+  node {
+    host = var.nodes[0]
+  }
+  node {
+    host = var.nodes[1]
+  }
+  node {
+    host = var.nodes[2]
+  }
 }
 ```
 

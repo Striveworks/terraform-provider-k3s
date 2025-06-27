@@ -73,15 +73,18 @@ testacc-init: cfg-tfrc ## Stands up backing infrastructure for integration tests
 
 .PHONY: init-%
 init-%: ## Stands up the openstack example provider
-	tofu -chdir=examples/$* init
+	source tools/functions.sh
+	tofu_wrapped -chdir=examples/$* init
 
 .PHONY: apply-%
 apply-%: ## Stands up the openstack example provider
-	tofu -chdir=examples/$* apply -auto-approve
+	source tools/functions.sh
+	tofu_wrapped -chdir=examples/$* apply -auto-approve
 
 .PHONY: destroy-%
 destroy-%: ## Destroys the openstack example provider
-	tofu -chdir=examples/$* destroy -auto-approve
+	source tools/functions.sh
+	tofu_wrapped -chdir=examples/$* destroy -auto-approve
 
 .PHONY: validate-%
 validate-%: ## Destroys the openstack example provider

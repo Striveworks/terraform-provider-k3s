@@ -60,3 +60,21 @@ function testacc() {
     cat "${ROOT_DIR}/acc-test.results.log"
 
 }
+
+function tofu_wrapped() {
+    temp_file=$(mktemp)
+
+    # shellcheck disable=SC2068
+    TF_LOG_PROVIDER=TRACE \
+        TF_LOG_PATH="${temp_file}" \
+        tofu $@ 2>&1 &
+
+    cmdpid=$!
+    tail -f "${temp_file}" | grep --line-buffered 'provider.terraform-provider-k3s' &
+    logpid=$!
+
+    wait -n
+
+    kill "$cmdpid" "$logpid"
+
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"gopkg.in/yaml.v2"
 	"k8s.io/client-go/tools/clientcmd"
+
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 

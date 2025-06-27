@@ -20,10 +20,6 @@ variable "openstack" {
   type = any
 }
 
-variable "os_config" {
-  type      = any
-  sensitive = true
-}
 
 module "infra" {
   source = "../modules/openstack-backend"
@@ -52,21 +48,15 @@ resource "k3s_ha_server" "main" {
   }
 }
 
-# resource "k3s_agent" "agent" {
-#   count       = 4
-#   host        = module.infra.nodes[count.index + 3]
-#   server      = module.infra.nodes[0]
-#   token       = k3s_ha_server.main.token
-#   user        = var.openstack.user
-#   private_key = module.infra.ssh_key
-# }
-
-
 
 resource "local_file" "ssh_key" {
   content         = module.infra.ssh_key
   filename        = "key.pem"
   file_permission = "0600"
+}
+
+output "nodes" {
+  value = module.infra.nodes
 }
 
 resource "local_sensitive_file" "kubeconfig" {
