@@ -2,12 +2,10 @@ package k3s
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"gopkg.in/yaml.v2"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
@@ -61,29 +59,20 @@ func (s *server) dataDir() string {
 
 // RunPreReqs implements K3sComponent.
 func (s *server) RunPreReqs(client ssh_client.SSHClient) error {
-
 	if err := client.WaitForReady(); err != nil {
 		return err
 	}
 
-	tflog.Debug(s.ctx, "Reading config path")
-	configPath := fmt.Sprintf("%s/config.yaml", CONFIG_DIR)
-	configContents, err := yaml.Marshal(s.config)
+	cfgCommands, err := configCommands(s.ctx, s.config)
+	if err != nil {
+		return err
+	}
+	regCommands, err := registryCommands(s.ctx, s.registry)
 	if err != nil {
 		return err
 	}
 
-	tflog.Debug(s.ctx, "Reading registries")
-	registryContents := []byte{}
-	registryPath := fmt.Sprintf("%s/registries.yaml", CONFIG_DIR)
-	if s.registry != nil {
-		registryContents, err = yaml.Marshal(s.registry)
-		if err != nil {
-			return err
-		}
-	}
-
-	systemDContent, err := ReadSystemDSingleServer(configPath, s.binDir)
+	systemDContent, err := ReadSystemDSingleServer(fmt.Sprintf("%s/config.yaml", CONFIG_DIR), s.binDir)
 	if err != nil {
 		return err
 	}
@@ -102,24 +91,19 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient) error {
 		// Ensure directories exist
 		fmt.Sprintf("sudo mkdir -p %s", s.dataDir()),
 		fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR),
-		// Write config file
-		fmt.Sprintf("echo %q | sudo tee %s.tmp > /dev/null", base64.StdEncoding.EncodeToString(configContents), CONFIG_DIR),
-		fmt.Sprintf("sudo base64 -d %s.tmp | sudo tee %s > /dev/null", CONFIG_DIR, configPath),
-		fmt.Sprintf("sudo rm %s.tmp", CONFIG_DIR),
-		// Write the SystemD file
+	}
+	// Write config file
+	commands = append(commands, cfgCommands...)
+	// Write the SystemD file
+	commands = append(commands, []string{
 		fmt.Sprintf("echo %q | sudo tee /etc/systemd/system/k3s.service.tmp > /dev/null", systemDContent),
 		"sudo base64 -d /etc/systemd/system/k3s.service.tmp | sudo tee /etc/systemd/system/k3s.service > /dev/null",
 		"sudo chown root:root /etc/systemd/system/k3s.service",
 		"sudo rm /etc/systemd/system/k3s.service.tmp",
-	}
+	}...)
 
-	if len(registryContents) != 0 {
-		commands = append(commands, []string{
-			// Write registries file
-			fmt.Sprintf("echo %q | sudo tee %s.tmp > /dev/null", base64.StdEncoding.EncodeToString(registryContents), CONFIG_DIR),
-			fmt.Sprintf("sudo base64 -d %s.tmp | sudo tee %s > /dev/null", CONFIG_DIR, registryPath),
-			fmt.Sprintf("sudo rm %s.tmp", CONFIG_DIR),
-		}...)
+	if len(regCommands) != 0 {
+		commands = append(commands, regCommands...)
 	}
 
 	return client.RunStream(commands)
@@ -210,6 +194,27 @@ func (s *server) StatusLog(client ssh_client.SSHClient) (string, error) {
 	}
 
 	return res[0], nil
+}
+
+func (s *server) Update(client ssh_client.SSHClient) error {
+	if err := client.WaitForReady(); err != nil {
+		return err
+	}
+
+	commands, err := configCommands(s.ctx, s.config)
+	if err != nil {
+		return err
+	}
+	regCommands, err := registryCommands(s.ctx, s.registry)
+	if err != nil {
+		return err
+	}
+
+	if len(regCommands) != 0 {
+		commands = append(commands, regCommands...)
+	}
+
+	return client.RunStream(append(commands, "sudo systemctl restart k3s"))
 }
 
 func updateKubeConfig(kubeconfigText string, host string) (string, error) {

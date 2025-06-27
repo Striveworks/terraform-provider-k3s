@@ -132,6 +132,14 @@ func (a *agent) StatusLog(client ssh_client.SSHClient) (string, error) {
 	return res[0], nil
 }
 
+func (a *agent) Update(client ssh_client.SSHClient) error {
+	if err := client.WaitForReady(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (a *agent) dataDir() string {
 	if dir, ok := a.config["data_dir"].(string); ok && dir != "" {
 		return dir
