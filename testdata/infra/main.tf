@@ -81,8 +81,3 @@ output "user" {
   value     = var.user
   sensitive = true
 }
-
-variable "os_config" {
-  type      = any
-  sensitive = true
-}

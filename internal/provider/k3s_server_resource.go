@@ -113,6 +113,9 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 			"host": schema.StringAttribute{
 				Required:            true,
 				MarkdownDescription: "Hostname of the target server",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"port": schema.Int32Attribute{
 				Optional:            true,
@@ -327,9 +330,11 @@ func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 // Update implements resource.ResourceWithImportState.
 func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data ServerClientModel
+	var state ServerClientModel
 
 	// Read Terraform plan data into the model
-	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 
 	if resp.Diagnostics.HasError() {
 		return
@@ -343,6 +348,10 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 
 	server := k3s.NewK3sServerComponent(ctx, nil, nil, nil, data.BinDir.ValueString())
 
+	if err := server.Update(sshClient); err != nil {
+		resp.Diagnostics.AddError("Error updating server", err.Error())
+	}
+
 	tflog.Info(ctx, "Getting k3s server status")
 	active, err := server.Status(sshClient)
 	if err != nil {
@@ -351,9 +360,11 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 
 	tflog.Info(ctx, "Setting k3s server outputs")
-	data.Active = types.BoolValue(active)
+	state.Active = types.BoolValue(active)
+	state.K3sConfig = data.K3sConfig
+	state.K3sRegistry = data.K3sRegistry
 	// Save data into Terraform state
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 // ConfigValidators implements resource.ResourceWithConfigValidators.
