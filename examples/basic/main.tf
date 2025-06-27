@@ -1,8 +1,7 @@
 terraform {
   required_providers {
     k3s = {
-      source  = "striveworks/k3s"
-      version = "*"
+      source = "striveworks/k3s"
     }
     openstack = {
       source  = "terraform-provider-openstack/openstack"
@@ -35,6 +34,9 @@ resource "k3s_server" "main" {
   host        = module.infra.nodes[0]
   user        = var.openstack.user
   private_key = module.infra.ssh_key
+  config      = <<EOT
+embedded-registry: true
+EOT
 }
 
 resource "k3s_agent" "agent" {
@@ -44,4 +46,20 @@ resource "k3s_agent" "agent" {
   token       = k3s_server.main.token
   user        = var.openstack.user
   private_key = module.infra.ssh_key
+}
+
+resource "local_file" "ssh_key" {
+  content         = module.infra.ssh_key
+  filename        = "key.pem"
+  file_permission = "0600"
+}
+
+output "nodes" {
+  value = module.infra.nodes
+}
+
+resource "local_sensitive_file" "kubeconfig" {
+  content         = k3s_server.main.kubeconfig
+  filename        = "kubeconfig"
+  file_permission = "0600"
 }

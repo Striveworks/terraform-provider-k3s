@@ -76,6 +76,11 @@ init-%: ## Stands up the openstack example provider
 	source tools/functions.sh
 	tofu_wrapped -chdir=examples/$* init
 
+.PHONY: plan-%
+plan-%: ## Stands up the openstack example provider
+	source tools/functions.sh
+	tofu_wrapped -chdir=examples/$* plan
+
 .PHONY: apply-%
 apply-%: ## Stands up the openstack example provider
 	source tools/functions.sh
