@@ -20,7 +20,9 @@ type K3sComponent interface {
 	RunUninstall(ssh_client.SSHClient) error
 	Update(ssh_client.SSHClient) error
 	Status(ssh_client.SSHClient) (bool, error)
+	// Gets systemd status
 	StatusLog(ssh_client.SSHClient) (string, error)
+	// Gets the journalctl logs
 	Journal(ssh_client.SSHClient) (string, error)
 }
 
@@ -80,4 +82,22 @@ func registryCommands(ctx context.Context, registry map[string]any) (commands []
 
 	return commands, err
 
+}
+
+// Will import a remote yaml file.
+func readYaml(client ssh_client.SSHClient, file string, missingOk ...bool) (map[string]any, error) {
+	res, err := client.ReadFile(file, missingOk...)
+	if err != nil {
+		return nil, err
+	}
+
+	if res == "" {
+		return nil, nil
+	}
+
+	var contents map[string]any
+	if err := yaml.Unmarshal([]byte(res), &contents); err != nil {
+		return nil, err
+	}
+	return contents, nil
 }

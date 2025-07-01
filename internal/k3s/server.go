@@ -15,6 +15,10 @@ type K3sServer interface {
 	K3sComponent
 	Token() string
 	KubeConfig() string
+	Config() map[string]any
+	Registry() map[string]any
+	// Resyncs server object with remote
+	Resync(ssh_client.SSHClient) error
 }
 
 var _ K3sServer = &server{}
@@ -39,8 +43,17 @@ func (s *server) Token() string {
 	return s.token
 }
 
-func NewK3sServerComponent(ctx context.Context, config map[string]any, registry map[string]any, version *string, binDir string) K3sServer {
+// Token implements K3sServer.
+func (s *server) Config() map[string]any {
+	return s.config
+}
 
+// Token implements K3sServer.
+func (s *server) Registry() map[string]any {
+	return s.registry
+}
+
+func NewK3sServerComponent(ctx context.Context, config map[string]any, registry map[string]any, version *string, binDir string) K3sServer {
 	return &server{
 		ctx:      ctx,
 		config:   config,
@@ -110,7 +123,7 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient) error {
 }
 
 // RunInstall implements K3sComponent.
-func (s *server) RunInstall(client ssh_client.SSHClient) error {
+func (s *server) RunInstall(client ssh_client.SSHClient) (err error) {
 	flags := []string{
 		"INSTALL_K3S_SKIP_START=true",
 	}
@@ -125,37 +138,22 @@ func (s *server) RunInstall(client ssh_client.SSHClient) error {
 		"sudo systemctl start k3s",
 	}
 
-	if err := client.RunStream(commands); err != nil {
-		return err
+	if err = client.RunStream(commands); err != nil {
+		return
 	}
 
 	// If first node on HA, set token
 	if s.token == "" {
-		token, err := client.Run("sudo cat /var/lib/rancher/k3s/server/token")
+		s.token, err = s.getToken(client)
 		if err != nil {
-			return err
+			return
 		}
-		if len(token) != 1 {
-			return fmt.Errorf("mismatched return from grapping server token")
-		}
-		s.token = token[0]
 	}
 
 	// Retrieve kubeconfig
-	kubeconfig, err := client.Run("sudo cat /etc/rancher/k3s/k3s.yaml")
-	if err != nil {
-		return err
-	}
-	if len(kubeconfig) != 1 {
-		return fmt.Errorf("mismatched return from grapping server token")
-	}
-	kubeConfig, err := updateKubeConfig(kubeconfig[0], client.Host())
-	if err != nil {
-		return err
-	}
-	s.kubeConfig = kubeConfig
+	s.kubeConfig, err = s.getKubeConfig(client)
 
-	return nil
+	return err
 }
 
 // RunUninstall implements K3sServer.
@@ -167,7 +165,6 @@ func (s *server) RunUninstall(client ssh_client.SSHClient) error {
 
 func (s *server) Status(client ssh_client.SSHClient) (bool, error) {
 	return systemdStatus("k3s", client)
-
 }
 
 func (s *server) Journal(client ssh_client.SSHClient) (string, error) {
@@ -215,6 +212,65 @@ func (s *server) Update(client ssh_client.SSHClient) error {
 	}
 
 	return client.RunStream(append(commands, "sudo systemctl restart k3s"))
+}
+
+func (s *server) Resync(client ssh_client.SSHClient) (err error) {
+
+	s.token, err = s.getToken(client)
+	if err != nil {
+		return
+	}
+
+	s.kubeConfig, err = s.getKubeConfig(client)
+	if err != nil {
+		return
+	}
+
+	s.registry, err = s.getRegistry(client)
+	if err != nil {
+		return
+	}
+
+	s.config, err = s.getConfig(client)
+
+	return
+}
+
+// Retrieve server token.
+func (s *server) getToken(client ssh_client.SSHClient) (string, error) {
+	token, err := client.Run("sudo cat /var/lib/rancher/k3s/server/token")
+	if err != nil {
+		return "", err
+	}
+	if len(token) != 1 {
+		return "", fmt.Errorf("mismatched return from grapping server token")
+	}
+	return token[0], nil
+}
+
+// Retrieve kubeconfig.
+func (s *server) getKubeConfig(client ssh_client.SSHClient) (string, error) {
+	kubeconfig, err := client.Run("sudo cat /etc/rancher/k3s/k3s.yaml")
+	if err != nil {
+		return "", fmt.Errorf("could not retrieve server token: %s", err.Error())
+	}
+	if len(kubeconfig) != 1 {
+		return "", fmt.Errorf("mismatched return from grapping server token")
+	}
+	kubeConfig, err := updateKubeConfig(kubeconfig[0], client.Host())
+	if err != nil {
+		return "", fmt.Errorf("could not retrieve server kubeconfig: %s", err.Error())
+	}
+	return kubeConfig, nil
+}
+
+// Retrieve kubeconfig.
+func (s *server) getRegistry(client ssh_client.SSHClient) (map[string]any, error) {
+	return readYaml(client, "/etc/rancher/k3s/registry.yaml", true)
+}
+
+func (s *server) getConfig(client ssh_client.SSHClient) (map[string]any, error) {
+	return readYaml(client, "/etc/rancher/k3s/config.yaml", true)
 }
 
 func updateKubeConfig(kubeconfigText string, host string) (string, error) {

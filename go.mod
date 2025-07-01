@@ -6,6 +6,7 @@ require (
 	github.com/hashicorp/go-uuid v1.0.3
 	github.com/hashicorp/terraform-plugin-framework v1.15.0
 	github.com/hashicorp/terraform-plugin-log v0.9.0
+	github.com/pkg/sftp v1.13.9
 	golang.org/x/crypto v0.39.0
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/client-go v0.33.2
@@ -30,6 +31,7 @@ require (
 	github.com/hashicorp/terraform-exec v0.23.0 // indirect
 	github.com/hashicorp/terraform-json v0.25.0 // indirect
 	github.com/hashicorp/terraform-plugin-sdk/v2 v2.37.0 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect

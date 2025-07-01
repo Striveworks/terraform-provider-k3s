@@ -56,7 +56,7 @@ variable "image_id" {
 // Resources
 
 module "infra" {
-  source = "../examples/modules/openstack-backend"
+  source = "../../examples/modules/openstack-backend"
 
   name              = "ha"
   user              = var.user
@@ -73,11 +73,18 @@ output "ssh_key" {
   value     = module.infra.ssh_key
   sensitive = true
 }
+
 output "nodes" {
-  value     = module.infra.nodes
-  sensitive = true
+  value = module.infra.nodes
 }
+
 output "user" {
   value     = var.user
   sensitive = true
+}
+
+resource "local_sensitive_file" "kubeconfig" {
+  content         = module.infra.ssh_key
+  filename        = "key.pem"
+  file_permission = "0600"
 }

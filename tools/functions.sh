@@ -4,7 +4,7 @@ CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(realpath "${CURRENT_DIR}/..")"
 
 function test_standup() {
-    local test_dir="testdata/infra"
+    local test_dir="tests/infra"
 
     if ! cd "${ROOT_DIR}/${test_dir}"; then
         echo "Could not find '${test_dir}'"
@@ -22,7 +22,7 @@ function test_standup() {
 }
 
 function test_teardown() {
-    local test_dir="testdata/infra"
+    local test_dir="tests/infra"
 
     if ! cd "${ROOT_DIR}/${test_dir}"; then
         echo "Could not find '${test_dir}'"
@@ -40,16 +40,17 @@ function testacc() {
 
     TEST_JSON_PATH="${ROOT_DIR}/_vars.test.auto.tfvars.json" \
         TF_LOG_PROVIDER=TRACE \
-        TF_LOG_PATH="${temp_file}" \
+        TF_ACC_LOG=TRACE \
+        TF_ACC_LOG_PATH="${temp_file}" \
         TF_ACC=1 \
         go test \
         -run ^TestAcc \
         -parallel 5 \
         -v -cover \
-        -timeout 30m ./... 2>&1 &
+        -timeout 30m ./... &
     testpid=$!
 
-    tail -f "${temp_file}" | grep --line-buffered 'provider.terraform-provider-k3s' &
+    tail -f "${temp_file}" | grep --line-buffered 'k3s:' &
     logpid=$!
     wait -n
 

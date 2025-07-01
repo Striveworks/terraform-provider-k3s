@@ -5,8 +5,10 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
-	"github.com/hashicorp/go-uuid"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
@@ -16,11 +18,16 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"gopkg.in/yaml.v2"
 	"striveworks.us/terraform-provider-k3s/internal/k3s"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
+// Ensure structs are properly implements interfaces
+
 var _ resource.ResourceWithConfigValidators = &K3sServerResource{}
+var _ resource.ResourceWithConfigure = &K3sServerResource{}
+var _ resource.ResourceWithImportState = &K3sServerResource{}
 
 type K3sServerResource struct {
 	version *string
@@ -57,36 +64,10 @@ type ServerClientModel struct {
 	Active     types.Bool   `tfsdk:"active"`
 }
 
-func (s *K3sServerResource) description() MarkdownDescription {
-	return `
-Creates a K3s Server
-
-Example:
-
-!!!hcl
-data "k3s_config" "server" {
-  data_dir = "/etc/k3s"
-  config  = {
-	  "etcd-expose-metrics" = "" // flag for true
-	  "etcd-s3-timeout"     = "5m30s",
-	  "node-label"		    = ["foo=bar"]
-  }
-}
-
-resource "k3s_server" "main" {
-  host        = "192.168.10.1"
-  user        = "ubuntu"
-  private_key = var.private_key_openssh
-  config      = data.k3s_server_config.server.yaml
-}
-!!!
-`
-}
-
 // Schema implements resource.ResourceWithImportState.
 func (s *K3sServerResource) Schema(context context.Context, resource resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: s.description().ToMarkdown(),
+		MarkdownDescription: "Creates a k3s server resource. Only one of `password` or `private_key` can be passed",
 		Attributes: map[string]schema.Attribute{
 			// Inputs
 			"bin_dir": schema.StringAttribute{
@@ -98,7 +79,7 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 			"private_key": schema.StringAttribute{
 				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "Value of a privatekey used to auth",
+				MarkdownDescription: "Private ssh key value to be used in place of a password",
 			},
 			"password": schema.StringAttribute{
 				Optional:            true,
@@ -232,7 +213,6 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 
 	tflog.Info(ctx, "Checking k3s systemd status")
 	active, err := server.Status(sshClient)
-
 	if err != nil {
 		resp.Diagnostics.AddError("Error retrieving server status", err.Error())
 		return
@@ -259,8 +239,7 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	data.Active = types.BoolValue(active)
 	data.KubeConfig = types.StringValue(server.KubeConfig())
 	data.Token = types.StringValue(server.Token())
-	id, _ := uuid.GenerateUUID()
-	data.Id = types.StringValue(id)
+	data.Id = types.StringValue(fmt.Sprintf("server,%s", data.Host))
 
 	tflog.Info(ctx, "Created a k3s server resource")
 	// Save data into Terraform state
@@ -313,16 +292,43 @@ func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 		resp.Diagnostics.AddError("Creating ssh config", err.Error())
 		return
 	}
-
-	server := k3s.NewK3sServerComponent(ctx, nil, nil, s.version, data.BinDir.ValueString())
-
-	active, err := server.Status(sshClient)
-	tflog.Info(ctx, fmt.Sprintf("Status after install %t", active))
-	if err != nil {
-		resp.Diagnostics.AddError("Error retrieving server status", err.Error())
+	tflog.Info(ctx, "Resyncing k3s_server")
+	server := k3s.NewK3sServerComponent(ctx, nil, nil, nil, data.BinDir.ValueString())
+	if err := server.Resync(sshClient); err != nil {
+		resp.Diagnostics.AddError("failed importing: resyncing k3s_server", err.Error())
 		return
 	}
+
+	tflog.Info(ctx, "Checking k3s systemd status")
+	active, err := server.Status(sshClient)
+	if err != nil {
+		resp.Diagnostics.AddError("failed importing: Error retrieving server status", err.Error())
+		return
+	}
+
 	data.Active = types.BoolValue(active)
+	data.KubeConfig = types.StringValue(server.KubeConfig())
+	data.Token = types.StringValue(server.Token())
+
+	if serverConfig := server.Config(); serverConfig != nil {
+		config, err := yaml.Marshal(server.Config())
+		if err != nil {
+			resp.Diagnostics.AddError("failed importing: Error server config", err.Error())
+			return
+		}
+		data.K3sConfig = types.StringValue(string(config))
+	}
+
+	if registry := server.Registry(); registry != nil {
+		contents, err := yaml.Marshal(registry)
+		if err != nil {
+			resp.Diagnostics.AddError("failed importing: Error server registry", err.Error())
+			return
+		}
+		if string(contents) != "" {
+			data.K3sRegistry = types.StringValue(string(contents))
+		}
+	}
 
 	resp.Diagnostics.Append(req.State.Set(ctx, &data)...)
 }
@@ -372,4 +378,90 @@ func (s *K3sServerResource) ConfigValidators(ctx context.Context) []resource.Con
 	return []resource.ConfigValidator{
 		NewK3sServerValidator(),
 	}
+}
+
+func (s *K3sServerResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	data := ServerClientModel{
+		BinDir: types.StringValue("/usr/local/bin"),
+		Port:   types.Int32Value(22),
+	}
+
+	for field := range strings.SplitSeq(req.ID, ",") {
+		kv := strings.Split(field, "=")
+		if len(kv) != 2 {
+			resp.Diagnostics.AddError("failed importing", "Importing k3s_server requires comma separated field=value")
+		}
+		if kv[0] == "host" {
+			data.Host = types.StringValue(kv[1])
+		}
+		if kv[0] == "user" {
+			data.User = types.StringValue(kv[1])
+		}
+		if kv[0] == "private_key" {
+			data.PrivateKey = types.StringValue(kv[1])
+		}
+		if kv[0] == "port" {
+			val, err := strconv.Atoi(kv[1])
+			if err != nil {
+				resp.Diagnostics.AddError("failed importing", "Could not parse port")
+				return
+			}
+			data.Port = types.Int32Value(int32(val))
+		}
+		if kv[0] == "password" {
+			data.Password = types.StringValue(kv[1])
+		}
+		if kv[0] == "binDir" {
+			data.BinDir = types.StringValue(kv[1])
+		}
+	}
+
+	sshClient, err := data.sshClient(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError("failed importing: Creating ssh config", err.Error())
+		return
+	}
+
+	tflog.Info(ctx, "Resyncing k3s_server")
+	server := k3s.NewK3sServerComponent(ctx, nil, nil, nil, data.BinDir.ValueString())
+	if err := server.Resync(sshClient); err != nil {
+		resp.Diagnostics.AddError("failed importing: resyncing k3s_server", err.Error())
+		return
+	}
+
+	tflog.Info(ctx, "Checking k3s systemd status")
+	active, err := server.Status(sshClient)
+	if err != nil {
+		resp.Diagnostics.AddError("failed importing: Error retrieving server status", err.Error())
+		return
+	}
+
+	data.Active = types.BoolValue(active)
+	data.KubeConfig = types.StringValue(server.KubeConfig())
+	data.Token = types.StringValue(server.Token())
+
+	if serverConfig := server.Config(); serverConfig != nil {
+		config, err := yaml.Marshal(server.Config())
+		if err != nil {
+			resp.Diagnostics.AddError("failed importing: Error server config", err.Error())
+			return
+		}
+		data.K3sConfig = types.StringValue(string(config))
+	}
+
+	if registry := server.Registry(); registry != nil {
+		contents, err := yaml.Marshal(registry)
+		if err != nil {
+			resp.Diagnostics.AddError("failed importing: Error server registry", err.Error())
+			return
+		}
+		if string(contents) != "" {
+			data.K3sRegistry = types.StringValue(string(contents))
+		}
+	}
+
+	tflog.Info(ctx, "Imported a k3s server resource")
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), types.StringValue(fmt.Sprintf("server,%s", data.Host)))...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
 }

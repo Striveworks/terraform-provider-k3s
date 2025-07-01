@@ -7,9 +7,6 @@ on:
   pull_request:
     paths-ignore:
       - "README.md"
-  push:
-    paths-ignore:
-      - "README.md"
 
 # Testing only needs permissions to read the repository contents.
 permissions:
@@ -51,7 +48,7 @@ jobs:
       - uses: pre-commit/action@v3.0.1
         continue-on-error: true
         with:
-          extra_args: trailing-whitespace --all-files
+          extra_args: --all-files
       - name: git diff
         run: |
           git diff --compact-summary --exit-code || \

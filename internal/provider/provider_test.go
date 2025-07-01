@@ -6,12 +6,15 @@ package provider
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
+	"testing"
 	"text/template"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
 const (
@@ -50,6 +53,10 @@ func LoadInputs(f string) (StandupInputs, error) {
 	err = json.Unmarshal(fileBytes, &output)
 
 	return output, err
+}
+
+func (s *StandupInputs) SshClient(t *testing.T, index uint) (ssh_client.SSHClient, error) {
+	return ssh_client.NewSSHClient(t.Context(), fmt.Sprintf("%s:%d", s.Nodes[index], 22), s.User, s.SshKey, "")
 }
 
 func Render(raw string, args map[string]string) (string, error) {

@@ -1,6 +1,7 @@
 .terraform/
 *.pem
 *.sh
+!resources/**/*.sh
 *.tfstate*
 *.auto.tfvars.json
 kubeconfig

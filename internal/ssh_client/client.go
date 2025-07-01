@@ -1,6 +1,3 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
-
 package ssh_client
 
 import (
@@ -9,9 +6,12 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	sftp "github.com/pkg/sftp"
+
 	"golang.org/x/crypto/ssh"
 )
 
@@ -56,6 +56,8 @@ type SSHClient interface {
 	WaitForReady() error
 	// Host name/address
 	Host() string
+	// Reads file from remote path
+	ReadFile(path string, missingOk ...bool) (string, error)
 }
 
 var _ SSHClient = &sshClient{}
@@ -198,6 +200,44 @@ func (s *sshClient) WaitForReady() error {
 	}
 
 	return nil
+}
+
+func (s *sshClient) ReadFile(path string, missingOk ...bool) (string, error) {
+
+	skipMissing := false
+	if len(missingOk) > 0 {
+		skipMissing = missingOk[0]
+	}
+
+	client, err := ssh.Dial("tcp", s.host, &s.config)
+	if err != nil {
+		return "", err
+	}
+	defer client.Close()
+
+	sftpclient, err := sftp.NewClient(client)
+	if err != nil {
+		return "", err
+	}
+	defer sftpclient.Close()
+
+	file, err := sftpclient.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) && skipMissing {
+			return "", nil
+		}
+		return "", err
+	}
+	defer file.Close()
+
+	buf := new(bufio.Reader)
+	buf.Reset(file)
+	contents, err := buf.ReadString(0)
+	if err != nil && err.Error() != "EOF" {
+		return "", err
+	}
+	return contents, nil
+
 }
 
 func signerFromPem(pemBytes []byte) (ssh.Signer, error) {

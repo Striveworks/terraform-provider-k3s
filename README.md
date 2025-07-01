@@ -11,7 +11,9 @@ resources so you can manage you k3s clusters together with your cloud provider o
 
 ## Usage
 
-We only guarantee unit testing on the 5 most recent bug minor versions of terraform.
+[Registry](https://search.opentofu.org/provider/striveworks/k3s/latest)
+
+We only guarantee unit testing on the most recent bug minor versions of opentofu.
 
 ```hcl
 terraform {
