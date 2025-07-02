@@ -1,6 +1,3 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
-
 package provider
 
 import (
@@ -119,7 +116,7 @@ func (p *K3sProvider) Configure(ctx context.Context, req provider.ConfigureReque
 
 // DataSources defines the data sources implemented in the provider.
 func (p *K3sProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{NewK3sConfigDataSource}
+	return []func() datasource.DataSource{}
 }
 
 // Resources defines the resources implemented in the provider.

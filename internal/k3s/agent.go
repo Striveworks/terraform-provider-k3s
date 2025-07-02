@@ -1,19 +1,22 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
-
 package k3s
 
 import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/url"
+	"strings"
 
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v2"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
 type K3sAgent interface {
 	K3sComponent
+	Config() map[string]any
+	Server() string
 }
 
 var _ K3sAgent = &agent{}
@@ -23,28 +26,59 @@ type agent struct {
 	version *string
 	ctx     context.Context
 	binDir  string
+	token   string
+	server  string
 }
 
-func NewK3sAgentComponent(ctx context.Context, config map[string]any, version *string, binDir string) K3sAgent {
-	return &agent{ctx: ctx, config: config, version: version, binDir: binDir}
+// Token implements K3sAgent.
+func (a *agent) Config() map[string]any {
+	return a.config
+}
+
+func NewK3sAgentComponent(ctx context.Context, config map[string]any, version *string, token string, server string, binDir string) K3sAgent {
+	return &agent{ctx: ctx, config: config, version: version, binDir: binDir, token: token, server: server}
+}
+
+func (a *agent) Token() string {
+	return a.token
+}
+
+func (a *agent) Server() string {
+	return a.server
 }
 
 // RunInstall implements K3sAgent.
 func (a *agent) RunInstall(client ssh_client.SSHClient) error {
-	version := ""
+
+	flags := []string{
+		"INSTALL_K3S_SKIP_START=true",
+		fmt.Sprintf("INSTALL_K3S_EXEC='agent --config %s/config.yaml'", CONFIG_DIR),
+		fmt.Sprintf("K3S_URL=%s", fmt.Sprintf("https://%s:6443", a.server)),
+		fmt.Sprintf("K3S_TOKEN=%s", a.token),
+		fmt.Sprintf("BIN_DIR=%s", a.binDir),
+	}
 	if a.version != nil {
-		version = fmt.Sprintf("INSTALL_K3S_VERSION='%s'", *a.version)
+		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION='%s'", *a.version))
 	}
 
 	commands := []string{
-		fmt.Sprintf("sudo BIN_DIR=%[1]s INSTALL_K3S_SKIP_START=true INSTALL_K3S_EXEC=agent %s bash %[1]s/k3s-install.sh", a.binDir, version),
+		fmt.Sprintf("sudo %s bash %s/k3s-install.sh", strings.Join(flags, " "), a.binDir),
 		"sudo systemctl daemon-reload",
-		"sudo systemctl start k3s-agent",
 	}
 
 	if err := client.RunStream(commands); err != nil {
 		return err
 	}
+
+	if _, err := client.Run("sudo systemctl start k3s-agent"); err != nil {
+		log, _ := a.StatusLog(client)
+		tflog.Error(a.ctx, log)
+		journal, _ := a.Journal(client)
+		tflog.Trace(a.ctx, journal)
+
+		return fmt.Errorf("could not start k3s-agent")
+	}
+
 	return nil
 }
 
@@ -55,13 +89,7 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
 		return err
 	}
 
-	configPath := fmt.Sprintf("%s/config.yaml", CONFIG_DIR)
 	configContents, err := yaml.Marshal(a.config)
-	if err != nil {
-		return err
-	}
-
-	systemDContent, err := ReadSystemDSingleAgent(configPath, a.binDir)
 	if err != nil {
 		return err
 	}
@@ -71,27 +99,20 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
 		return err
 	}
 
-	commands := []string{
-		// Move over Install script
-		fmt.Sprintf("echo %q | sudo tee %s/k3s-install.tmp.sh > /dev/null", installContents, a.binDir),
-		fmt.Sprintf("sudo base64 -d %[1]s/k3s-install.tmp.sh | sudo tee %[1]s/k3s-install.sh > /dev/null", a.binDir),
-		fmt.Sprintf("sudo rm %s/k3s-install.tmp.sh", a.binDir),
-		// Ensure directories exist
-		fmt.Sprintf("sudo mkdir -p %s", a.dataDir()),
-		fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR),
-		// Write config file
-		fmt.Sprintf("echo %q | sudo tee %s/config.tmp.yaml > /dev/null", base64.StdEncoding.EncodeToString(configContents), CONFIG_DIR),
-		fmt.Sprintf("sudo base64 -d %s/config.tmp.yaml | sudo tee %s > /dev/null", CONFIG_DIR, configPath),
-		fmt.Sprintf("sudo rm %s/config.tmp.yaml", CONFIG_DIR),
-		// Write the SystemD file
-		fmt.Sprintf("echo %q | sudo tee /etc/systemd/system/k3s-agent.service.tmp > /dev/null", systemDContent),
-		"sudo base64 -d /etc/systemd/system/k3s-agent.service.tmp | sudo tee /etc/systemd/system/k3s-agent.service > /dev/null",
-		"sudo chown root:root /etc/systemd/system/k3s-agent.service",
-		"sudo rm /etc/systemd/system/k3s-agent.service.tmp",
+	commands := []string{fmt.Sprintf("sudo mkdir -p %s", a.dataDir()), fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR)}
+	files := []struct {
+		path     string
+		contents string
+	}{
+		{a.binDir + "/k3s-install.sh", installContents},
+		{CONFIG_DIR + "/config.yaml", base64.StdEncoding.EncodeToString(configContents)},
+	}
+
+	for _, file := range files {
+		commands = append(commands, WriteFileCommands(file.path, file.contents)...)
 	}
 
 	return client.RunStream(commands)
-
 }
 
 // RunUninstall implements K3sAgent.
@@ -137,7 +158,12 @@ func (a *agent) Update(client ssh_client.SSHClient) error {
 		return err
 	}
 
-	return nil
+	commands, err := configCommands(a.ctx, a.config)
+	if err != nil {
+		return err
+	}
+
+	return client.RunStream(append(commands, "sudo systemctl restart k3s-agent"))
 }
 
 func (a *agent) dataDir() string {
@@ -145,4 +171,46 @@ func (a *agent) dataDir() string {
 		return dir
 	}
 	return DATA_DIR
+}
+
+// Retrieve server token.
+func (a *agent) getAgentEnv(client ssh_client.SSHClient) (map[string]string, error) {
+	file, err := client.ReadFile("/etc/systemd/system/k3s-agent.service.env", false, true)
+	if err != nil {
+		return nil, err
+	}
+	tflog.Info(a.ctx, fmt.Sprintf("K3s agent file %v", file))
+	return godotenv.Unmarshal(file)
+}
+
+func (a *agent) Resync(client ssh_client.SSHClient) (err error) {
+	a.config, err = getConfig(client)
+	if err != nil {
+		return err
+	}
+
+	agentEnv, err := a.getAgentEnv(client)
+	if err != nil {
+		return err
+	}
+
+	tflog.Info(a.ctx, fmt.Sprintf("K3s agent env %v", agentEnv))
+	if token, ok := agentEnv["K3S_TOKEN"]; ok {
+		a.token = token
+	} else {
+		return fmt.Errorf("could not find agent token")
+	}
+
+	if k3sUrl, ok := agentEnv["K3S_URL"]; ok {
+		u, err := url.Parse(k3sUrl)
+		if err != nil {
+			return err
+		}
+		a.server = u.Hostname()
+
+	} else {
+		return fmt.Errorf("could not find server url")
+	}
+
+	return nil
 }

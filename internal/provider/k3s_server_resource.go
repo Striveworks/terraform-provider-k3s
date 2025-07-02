@@ -1,5 +1,3 @@
-// Copyright (c) HashiCorp, Inc.
-
 package provider
 
 import (
@@ -441,7 +439,7 @@ func (s *K3sServerResource) ImportState(ctx context.Context, req resource.Import
 	data.Token = types.StringValue(server.Token())
 
 	if serverConfig := server.Config(); serverConfig != nil {
-		config, err := yaml.Marshal(server.Config())
+		config, err := yaml.Marshal(serverConfig)
 		if err != nil {
 			resp.Diagnostics.AddError("failed importing: Error server config", err.Error())
 			return

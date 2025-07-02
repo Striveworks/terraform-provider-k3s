@@ -6,26 +6,24 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	sftp "github.com/pkg/sftp"
 
 	"golang.org/x/crypto/ssh"
 )
 
 func NewSSHClient(ctx context.Context, addr string, user string, pem string, password string) (SSHClient, error) {
-
 	var auth ssh.AuthMethod
 	if pem != "" {
-		tflog.Debug(ctx, "Using pem key auth")
+		tflog.MaskMessageStrings(ctx, pem)
 		signer, err := signerFromPem([]byte(pem))
 		if err != nil {
 			return nil, err
 		}
 		auth = ssh.PublicKeys(signer)
 	} else {
+		tflog.MaskMessageStrings(ctx, password)
 		tflog.Debug(ctx, "Using password auth")
 		auth = ssh.Password(password)
 	}
@@ -57,7 +55,8 @@ type SSHClient interface {
 	// Host name/address
 	Host() string
 	// Reads file from remote path
-	ReadFile(path string, missingOk ...bool) (string, error)
+	ReadFile(path string, missingOk bool, sudo bool) (string, error)
+	ReadOptionalFile(path string, sudo ...bool) (string, error)
 }
 
 var _ SSHClient = &sshClient{}
@@ -80,6 +79,7 @@ func (s *sshClient) Run(commands ...string) (results []string, err error) {
 		if err != nil {
 			return results, fmt.Errorf("cannot start cmd '%s': %s", cmd, err)
 		}
+		tflog.Debug(s.ctx, fmt.Sprintf("Running bash command: %v with result: %v", cmd, result))
 		results = append(results, result)
 	}
 
@@ -202,42 +202,26 @@ func (s *sshClient) WaitForReady() error {
 	return nil
 }
 
-func (s *sshClient) ReadFile(path string, missingOk ...bool) (string, error) {
+func (s *sshClient) ReadFile(path string, missingOk bool, sudo bool) (string, error) {
 
-	skipMissing := false
-	if len(missingOk) > 0 {
-		skipMissing = missingOk[0]
+	command := fmt.Sprintf("cat %s", path)
+	if sudo {
+		command = fmt.Sprintf("sudo %s", command)
+	}
+	if missingOk {
+		command = fmt.Sprintf("sudo [ -f %s ] && %s || echo ''", path, command)
 	}
 
-	client, err := ssh.Dial("tcp", s.host, &s.config)
+	result, err := s.Run(command)
 	if err != nil {
 		return "", err
 	}
-	defer client.Close()
 
-	sftpclient, err := sftp.NewClient(client)
-	if err != nil {
-		return "", err
-	}
-	defer sftpclient.Close()
+	return result[0], nil
+}
 
-	file, err := sftpclient.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) && skipMissing {
-			return "", nil
-		}
-		return "", err
-	}
-	defer file.Close()
-
-	buf := new(bufio.Reader)
-	buf.Reset(file)
-	contents, err := buf.ReadString(0)
-	if err != nil && err.Error() != "EOF" {
-		return "", err
-	}
-	return contents, nil
-
+func (s *sshClient) ReadOptionalFile(path string, sudo ...bool) (string, error) {
+	return s.ReadFile(path, true, len(sudo) > 0 && sudo[0])
 }
 
 func signerFromPem(pemBytes []byte) (ssh.Signer, error) {

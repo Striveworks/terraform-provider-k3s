@@ -3,11 +3,14 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
-	"github.com/hashicorp/go-uuid"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int32default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -20,6 +23,7 @@ import (
 
 var _ resource.ResourceWithConfigure = &K3sAgentResource{}
 var _ resource.ResourceWithConfigValidators = &K3sAgentResource{}
+var _ resource.ResourceWithImportState = &K3sAgentResource{}
 
 type K3sAgentResource struct {
 	version *string
@@ -41,41 +45,6 @@ type AgentClientModel struct {
 	Active types.Bool   `tfsdk:"active"`
 }
 
-func (K3sAgentResource) description() MarkdownDescription {
-	return `
-Creates a K3s Server
-
-Example:
-
-!!!hcl
-data "k3s_config" "server" {
-  data_dir = "/etc/k3s"
-  config  = {
-	  "etcd-expose-metrics" = "" // flag for true
-	  "etcd-s3-timeout"     = "5m30s",
-	  "node-label"		    = ["foo=bar"]
-  }
-}
-
-resource "k3s_server" "main" {
-  host        = "192.168.10.1"
-  user        = "ubuntu"
-  private_key = var.private_key_openssh
-  config      = data.k3s_config.server.yaml
-}
-
-resource "k3s_agent" "worker" {
-  host        = "192.168.10.2"
-  user        = "ubuntu"
-  private_key = var.private_key_openssh
-  config      = data.k3s_config.server.yaml
-  server	  = "192.168.10.1"
-  token		  = k3s_server.main.token
-}
-!!!
-`
-}
-
 func (s *AgentClientModel) sshClient(ctx context.Context) (ssh_client.SSHClient, error) {
 	port := 22
 	if int(s.Port.ValueInt32()) != 0 {
@@ -83,7 +52,29 @@ func (s *AgentClientModel) sshClient(ctx context.Context) (ssh_client.SSHClient,
 	}
 
 	addr := fmt.Sprintf("%s:%d", s.Host.ValueString(), port)
-	return ssh_client.NewSSHClient(ctx, addr, s.User.ValueString(), s.PrivateKey.ValueString(), s.Password.ValueString())
+	return ssh_client.NewSSHClient(
+		ctx,
+		addr,
+		s.User.ValueString(),
+		s.PrivateKey.ValueString(),
+		s.Password.ValueString(),
+	)
+}
+
+func (s *AgentClientModel) buildAgent(ctx context.Context, version *string) (k3s.K3sAgent, error) {
+	config := make(map[string]any)
+	if err := yaml.Unmarshal([]byte(s.K3sConfig.ValueString()), &config); err != nil {
+		return nil, err
+	}
+
+	return k3s.NewK3sAgentComponent(
+		ctx,
+		config,
+		version,
+		s.Token.ValueString(),
+		s.Server.ValueString(),
+		s.BinDir.ValueString(),
+	), nil
 }
 
 // Configure implements resource.ResourceWithConfigure.
@@ -113,60 +104,57 @@ func (k *K3sAgentResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
+	if data.Token.ValueString() == "" || data.Server.ValueString() == "" {
+		resp.Diagnostics.AddError("empty args", "Token or server cannot be empty strings")
+		return
+	}
+
 	sshClient, err := data.sshClient(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError("Creating ssh config", err.Error())
 		return
 	}
 
-	token := data.Token.ValueString()
-	server := fmt.Sprintf("https://%s:6443", data.Server.ValueString())
-
-	config := make(map[string]any)
-	if err := yaml.Unmarshal([]byte(data.K3sConfig.ValueString()), &config); err != nil {
-		resp.Diagnostics.AddError("Creating k3s config", err.Error())
+	agent, err := data.buildAgent(ctx, k.version)
+	if err != nil {
+		resp.Diagnostics.AddError("building k3s agent", err.Error())
 		return
 	}
 
-	config["token"] = token
-	config["server"] = server
-
-	agent := k3s.NewK3sAgentComponent(ctx, config, k.version, data.BinDir.ValueString())
 	if err := agent.RunPreReqs(sshClient); err != nil {
-		resp.Diagnostics.AddError("Running k3s agent prereqs", err.Error())
+		resp.Diagnostics.AddError("running k3s agent prereqs", err.Error())
 		return
 	}
 
 	if err := agent.RunInstall(sshClient); err != nil {
-		resp.Diagnostics.AddError("Running k3s agent install", err.Error())
+		resp.Diagnostics.AddError("running k3s agent install", err.Error())
 		return
 	}
 
 	active, err := agent.Status(sshClient)
 	if err != nil {
-		resp.Diagnostics.AddError("Error retrieving agent status", err.Error())
+		resp.Diagnostics.AddError("retrieving agent status", err.Error())
 		return
 	}
 
 	if !active {
 		status, err := agent.StatusLog(sshClient)
 		if err != nil {
-			resp.Diagnostics.AddError("Error retrieving systemctl status", err.Error())
+			resp.Diagnostics.AddError("retrieving systemctl status", err.Error())
 			return
 		}
-		resp.Diagnostics.AddError("Error running k3s-agent systemctl status", status)
+		resp.Diagnostics.AddError("running k3s-agent systemctl status", status)
 
 		logs, err := agent.Journal(sshClient)
 		if err != nil {
-			resp.Diagnostics.AddError("Error retrieving journalctl status", err.Error())
+			resp.Diagnostics.AddError("retrieving journalctl status", err.Error())
 			return
 		}
 		tflog.Trace(ctx, logs)
 	}
 
 	data.Active = types.BoolValue(active)
-	id, _ := uuid.GenerateUUID()
-	data.Id = types.StringValue(id)
+	data.Id = types.StringValue(fmt.Sprintf("agent,%s", data.Host))
 
 	tflog.Info(ctx, "created a k3s agent resource")
 
@@ -192,7 +180,7 @@ func (k *K3sAgentResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
-	agent := k3s.NewK3sAgentComponent(ctx, nil, nil, data.BinDir.ValueString())
+	agent := k3s.NewK3sAgentComponent(ctx, nil, nil, "", "", data.BinDir.ValueString())
 	if err := agent.RunUninstall(sshClient); err != nil {
 		resp.Diagnostics.AddError("Creating uninstall k3s-agent", err.Error())
 		return
@@ -220,7 +208,16 @@ func (k *K3sAgentResource) Read(ctx context.Context, req resource.ReadRequest, r
 		resp.Diagnostics.AddError("Creating ssh config", err.Error())
 		return
 	}
-	agent := k3s.NewK3sAgentComponent(ctx, nil, k.version, data.BinDir.ValueString())
+	agent, err := data.buildAgent(ctx, k.version)
+	if err != nil {
+		resp.Diagnostics.AddError("building k3s agent", err.Error())
+		return
+	}
+
+	if err := agent.Resync(sshClient); err != nil {
+		resp.Diagnostics.AddError("Resyncing k3s_agent", err.Error())
+		return
+	}
 
 	active, err := agent.Status(sshClient)
 	if err != nil {
@@ -228,6 +225,8 @@ func (k *K3sAgentResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 	data.Active = types.BoolValue(active)
+	data.Server = types.StringValue(agent.Server())
+	data.Token = types.StringValue(agent.Token())
 
 	resp.Diagnostics.Append(req.State.Set(ctx, &data)...)
 }
@@ -235,7 +234,7 @@ func (k *K3sAgentResource) Read(ctx context.Context, req resource.ReadRequest, r
 // Schema implements resource.Resource.
 func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: k.description().ToMarkdown(),
+		MarkdownDescription: "Creates a k3s agent resource. Only one of `password` or `private_key` can be passed. Requires a token and server address to a k3s_server resource",
 
 		Attributes: map[string]schema.Attribute{
 			// Inputs
@@ -264,9 +263,14 @@ func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaReques
 			"host": schema.StringAttribute{
 				Required:            true,
 				MarkdownDescription: "Hostname of the target server",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"port": schema.Int32Attribute{
 				Optional:            true,
+				Computed:            true,
+				Default:             int32default.StaticInt32(22),
 				MarkdownDescription: "Override default SSH port (22)",
 			},
 			// Config
@@ -278,10 +282,16 @@ func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaReques
 				Required:            true,
 				Sensitive:           true,
 				MarkdownDescription: "Server token used for joining nodes to the cluster",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"server": schema.StringAttribute{
 				Required:            true,
-				MarkdownDescription: "K3s server address",
+				MarkdownDescription: "Hostname for k3s api server",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			// Outputs
 			"id": schema.StringAttribute{
@@ -305,9 +315,11 @@ func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaReques
 // Update implements resource.Resource.
 func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data AgentClientModel
+	var state AgentClientModel
 
 	// Read Terraform plan data into the model
-	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 
 	if resp.Diagnostics.HasError() {
 		return
@@ -319,7 +331,11 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	agent := k3s.NewK3sAgentComponent(ctx, nil, nil, data.BinDir.ValueString())
+	agent, err := data.buildAgent(ctx, k.version)
+	if err != nil {
+		resp.Diagnostics.AddError("building k3s agent", err.Error())
+		return
+	}
 	if err := agent.RunUninstall(sshClient); err != nil {
 		resp.Diagnostics.AddError("Creating uninstall k3s", err.Error())
 		return
@@ -327,10 +343,92 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 }
 
 // ConfigValidators implements resource.ResourceWithConfigValidators.
-func (s *K3sAgentResource) ConfigValidators(ctx context.Context) []resource.ConfigValidator {
+func (k *K3sAgentResource) ConfigValidators(ctx context.Context) []resource.ConfigValidator {
 	return []resource.ConfigValidator{
 		&k3sAgentAuthValdiator{},
 	}
+}
+
+func (k *K3sAgentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	data := AgentClientModel{
+		BinDir: types.StringValue("/usr/local/bin"),
+		Port:   types.Int32Value(22),
+	}
+
+	for field := range strings.SplitSeq(req.ID, ",") {
+		kv := strings.Split(field, "=")
+		if len(kv) != 2 {
+			resp.Diagnostics.AddError("failed importing", "Importing k3s_server requires comma separated field=value")
+		}
+		if kv[0] == "host" {
+			data.Host = types.StringValue(kv[1])
+		}
+		if kv[0] == "user" {
+			data.User = types.StringValue(kv[1])
+		}
+		if kv[0] == "private_key" {
+			tflog.MaskMessageStrings(ctx, kv[1])
+			tflog.Info(ctx, "Importing k3s agent with private key")
+			data.PrivateKey = types.StringValue(kv[1])
+		}
+		if kv[0] == "port" {
+			val, err := strconv.Atoi(kv[1])
+			if err != nil {
+				resp.Diagnostics.AddError("failed importing", "Could not parse port")
+				return
+			}
+			data.Port = types.Int32Value(int32(val))
+		}
+		if kv[0] == "password" {
+			tflog.MaskMessageStrings(ctx, kv[1])
+			data.Password = types.StringValue(kv[1])
+		}
+		if kv[0] == "binDir" {
+			data.BinDir = types.StringValue(kv[1])
+		}
+	}
+
+	sshClient, err := data.sshClient(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError("failed importing: Creating ssh config", err.Error())
+		return
+	}
+
+	tflog.Info(ctx, "Resyncing k3s_agent")
+	agent, err := data.buildAgent(ctx, k.version)
+	if err != nil {
+		resp.Diagnostics.AddError("building k3s agent", err.Error())
+		return
+	}
+
+	if err := agent.Resync(sshClient); err != nil {
+		resp.Diagnostics.AddError("failed importing: resyncing k3s_agent", err.Error())
+		return
+	}
+
+	tflog.Info(ctx, "Checking k3s agent systemd status")
+	active, err := agent.Status(sshClient)
+	if err != nil {
+		resp.Diagnostics.AddError("failed importing: Error retrieving agent status", err.Error())
+		return
+	}
+
+	data.Server = types.StringValue(agent.Server())
+	data.Token = types.StringValue(agent.Token())
+	data.Active = types.BoolValue(active)
+
+	if agentConfig := agent.Config(); agentConfig != nil {
+		config, err := yaml.Marshal(agentConfig)
+		if err != nil {
+			resp.Diagnostics.AddError("failed importing: Error agent config", err.Error())
+			return
+		}
+		data.K3sConfig = types.StringValue(string(config))
+	}
+
+	tflog.Info(ctx, "Imported a k3s agent resource")
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), types.StringValue(fmt.Sprintf("agent,%s", data.Host)))...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func NewK3sAgentResource() resource.Resource {

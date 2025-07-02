@@ -10,7 +10,7 @@ terraform {
 
 // Providers
 provider "openstack" {
-  tenant_name = "terraform-provider-k3s"
+  cloud = "terraform-k3s-provider"
 }
 
 // Namings
@@ -64,7 +64,10 @@ module "infra" {
   flavor            = var.flavor
   availability_zone = var.availability_zone
   image_id          = var.image_id
-  nodes             = 7
+  # k3_server_test: Nodes 0-1
+  # k3_agent_test: Nodes 2-4
+  # k3_ha_server_test: Nodes 5-9
+  nodes = 10
 }
 
 // Outputs

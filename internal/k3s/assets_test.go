@@ -1,20 +1,21 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
-
 package k3s
 
 import (
+	"encoding/base64"
+	"reflect"
 	"testing"
 )
 
-func TestReadSystemDSingle(t *testing.T) {
-
-	res, err := ReadSystemDSingleServer("/var/lib/rancher", "/usr/local/bin")
-	if err != nil {
-		t.Errorf("Error building systemd file: %s", err)
+func TestWriteFileCommands(t *testing.T) {
+	commands := WriteFileCommands("/tmp/file", base64.StdEncoding.EncodeToString([]byte("hello world")))
+	expected := []string{
+		"echo \"aGVsbG8gd29ybGQ=\" | sudo tee /tmp/file.tmp > /dev/null",
+		"sudo base64 -d /tmp/file.tmp | sudo tee /tmp/file > /dev/null",
+		"sudo chown root:root /tmp/file",
+		"sudo rm /tmp/file.tmp",
 	}
 
-	if len(res) < 1 {
-		t.Errorf("Error building systemd file: %s", "Empty file")
+	if !reflect.DeepEqual(commands, expected) {
+		t.Error(commands, "Is not equal to", expected)
 	}
 }

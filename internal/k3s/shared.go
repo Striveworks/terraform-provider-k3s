@@ -15,15 +15,28 @@ const DATA_DIR string = "/var/lib/rancher/k3s"
 const CONFIG_DIR string = "/etc/rancher/k3s"
 
 type K3sComponent interface {
+	// Ensures all files and configs are present on remote node.
 	RunPreReqs(ssh_client.SSHClient) error
+	// Runs the install script, should be ran after `RunPreReqs`.
 	RunInstall(ssh_client.SSHClient) error
+	// Runs the k3s uninstall script that is included.
+	// with the install
 	RunUninstall(ssh_client.SSHClient) error
+	// Runs an update operation on the k3s node. If
+	// it's a simple config change, this will result
+	// in a systemd restart
 	Update(ssh_client.SSHClient) error
+	// Queries if the systemd service is active.
 	Status(ssh_client.SSHClient) (bool, error)
-	// Gets systemd status
+	// Gets systemd status.
 	StatusLog(ssh_client.SSHClient) (string, error)
-	// Gets the journalctl logs
+	// Gets the journalctl logs.
 	Journal(ssh_client.SSHClient) (string, error)
+	// Resyncs node object with remote.
+	Resync(ssh_client.SSHClient) error
+	// The server token used to join the cluster
+	// Running `Resync` first will ensure this is set.
+	Token() string
 }
 
 func systemdStatus(unit string, client ssh_client.SSHClient) (bool, error) {
@@ -55,7 +68,6 @@ func configCommands(ctx context.Context, config map[string]any) ([]string, error
 		fmt.Sprintf("sudo base64 -d %s.tmp | sudo tee %s > /dev/null", CONFIG_DIR, configPath),
 		fmt.Sprintf("sudo rm %s.tmp", CONFIG_DIR),
 	}, nil
-
 }
 
 // Commands for configuring server/agent registry.
@@ -81,12 +93,11 @@ func registryCommands(ctx context.Context, registry map[string]any) (commands []
 	}
 
 	return commands, err
-
 }
 
 // Will import a remote yaml file.
 func readYaml(client ssh_client.SSHClient, file string, missingOk ...bool) (map[string]any, error) {
-	res, err := client.ReadFile(file, missingOk...)
+	res, err := client.ReadFile(file, len(missingOk) > 0 && missingOk[0], true)
 	if err != nil {
 		return nil, err
 	}
@@ -100,4 +111,13 @@ func readYaml(client ssh_client.SSHClient, file string, missingOk ...bool) (map[
 		return nil, err
 	}
 	return contents, nil
+}
+
+func getConfig(client ssh_client.SSHClient) (map[string]any, error) {
+	return readYaml(client, "/etc/rancher/k3s/config.yaml", true)
+}
+
+// Retrieve kubeconfig.
+func getRegistry(client ssh_client.SSHClient) (map[string]any, error) {
+	return readYaml(client, "/etc/rancher/k3s/registry.yaml", true)
 }

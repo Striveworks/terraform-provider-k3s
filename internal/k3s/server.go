@@ -13,12 +13,12 @@ import (
 
 type K3sServer interface {
 	K3sComponent
-	Token() string
+	// Kubeconfig used for client access to the cluster
 	KubeConfig() string
+	// The k3s config
 	Config() map[string]any
+	// The k3s registry config
 	Registry() map[string]any
-	// Resyncs server object with remote
-	Resync(ssh_client.SSHClient) error
 }
 
 var _ K3sServer = &server{}
@@ -85,11 +85,6 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient) error {
 		return err
 	}
 
-	systemDContent, err := ReadSystemDSingleServer(fmt.Sprintf("%s/config.yaml", CONFIG_DIR), s.binDir)
-	if err != nil {
-		return err
-	}
-
 	tflog.Debug(s.ctx, "Reading install script")
 	installContents, err := ReadInstallScript()
 	if err != nil {
@@ -107,13 +102,6 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient) error {
 	}
 	// Write config file
 	commands = append(commands, cfgCommands...)
-	// Write the SystemD file
-	commands = append(commands, []string{
-		fmt.Sprintf("echo %q | sudo tee /etc/systemd/system/k3s.service.tmp > /dev/null", systemDContent),
-		"sudo base64 -d /etc/systemd/system/k3s.service.tmp | sudo tee /etc/systemd/system/k3s.service > /dev/null",
-		"sudo chown root:root /etc/systemd/system/k3s.service",
-		"sudo rm /etc/systemd/system/k3s.service.tmp",
-	}...)
 
 	if len(regCommands) != 0 {
 		commands = append(commands, regCommands...)
@@ -126,6 +114,8 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient) error {
 func (s *server) RunInstall(client ssh_client.SSHClient) (err error) {
 	flags := []string{
 		"INSTALL_K3S_SKIP_START=true",
+		fmt.Sprintf("BIN_DIR=%s", s.binDir),
+		fmt.Sprintf("INSTALL_K3S_EXEC='--config %s/config.yaml'", CONFIG_DIR),
 	}
 
 	if s.version != nil {
@@ -133,7 +123,7 @@ func (s *server) RunInstall(client ssh_client.SSHClient) (err error) {
 	}
 
 	commands := []string{
-		fmt.Sprintf("sudo BIN_DIR=%[1]s %s bash %[1]s/k3s-install.sh", s.binDir, strings.Join(flags, " ")),
+		fmt.Sprintf("sudo %s bash %s/k3s-install.sh", strings.Join(flags, " "), s.binDir),
 		"sudo systemctl daemon-reload",
 		"sudo systemctl start k3s",
 	}
@@ -226,51 +216,40 @@ func (s *server) Resync(client ssh_client.SSHClient) (err error) {
 		return
 	}
 
-	s.registry, err = s.getRegistry(client)
+	s.registry, err = getRegistry(client)
 	if err != nil {
 		return
 	}
 
-	s.config, err = s.getConfig(client)
+	s.config, err = getConfig(client)
 
 	return
 }
 
 // Retrieve server token.
 func (s *server) getToken(client ssh_client.SSHClient) (string, error) {
-	token, err := client.Run("sudo cat /var/lib/rancher/k3s/server/token")
+	token, err := client.ReadFile("/var/lib/rancher/k3s/server/token", false, true)
 	if err != nil {
 		return "", err
 	}
-	if len(token) != 1 {
-		return "", fmt.Errorf("mismatched return from grapping server token")
-	}
-	return token[0], nil
+	token = strings.Trim(token, "\n")
+	tflog.MaskMessageStrings(s.ctx, token)
+	return token, nil
 }
 
 // Retrieve kubeconfig.
 func (s *server) getKubeConfig(client ssh_client.SSHClient) (string, error) {
-	kubeconfig, err := client.Run("sudo cat /etc/rancher/k3s/k3s.yaml")
+	kubeconfig, err := client.ReadFile("/etc/rancher/k3s/k3s.yaml", false, true)
 	if err != nil {
-		return "", fmt.Errorf("could not retrieve server token: %s", err.Error())
+		return "", fmt.Errorf("could not retrieve kubeconfig: %s", err.Error())
 	}
-	if len(kubeconfig) != 1 {
-		return "", fmt.Errorf("mismatched return from grapping server token")
-	}
-	kubeConfig, err := updateKubeConfig(kubeconfig[0], client.Host())
+
+	kubeConfig, err := updateKubeConfig(kubeconfig, client.Host())
 	if err != nil {
 		return "", fmt.Errorf("could not retrieve server kubeconfig: %s", err.Error())
 	}
+	tflog.MaskMessageStrings(s.ctx, kubeConfig)
 	return kubeConfig, nil
-}
-
-// Retrieve kubeconfig.
-func (s *server) getRegistry(client ssh_client.SSHClient) (map[string]any, error) {
-	return readYaml(client, "/etc/rancher/k3s/registry.yaml", true)
-}
-
-func (s *server) getConfig(client ssh_client.SSHClient) (map[string]any, error) {
-	return readYaml(client, "/etc/rancher/k3s/config.yaml", true)
 }
 
 func updateKubeConfig(kubeconfigText string, host string) (string, error) {

@@ -2,15 +2,18 @@ variable "host" {
   type    = string
   default = ""
 }
+
 variable "user" {
   type    = string
   default = ""
 }
+
 variable "private_key" {
   type      = string
   sensitive = true
   default   = ""
 }
+
 variable "config" {
   type    = string
   default = null

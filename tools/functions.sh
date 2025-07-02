@@ -34,6 +34,8 @@ function test_teardown() {
 }
 
 function testacc() {
+    local select="${1:-TestAcc}"
+
     temp_file=$(mktemp)
 
     echo "Log dir $temp_file"
@@ -44,7 +46,7 @@ function testacc() {
         TF_ACC_LOG_PATH="${temp_file}" \
         TF_ACC=1 \
         go test \
-        -run ^TestAcc \
+        -run "^${select}" \
         -parallel 5 \
         -v -cover \
         -timeout 30m ./... &

@@ -22,47 +22,12 @@ func TestAccK3sServerResource(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{{
-			ConfigDirectory: config.StaticDirectory("../../tests/k3s_server"),
-			Config:          providerConfig,
-			ConfigVariables: map[string]config.Variable{
-				"host":        config.StringVariable(inputs.Nodes[0]),
-				"user":        config.StringVariable(inputs.User),
-				"private_key": config.StringVariable(inputs.SshKey),
-			},
-			ConfigStateChecks: []statecheck.StateCheck{
-				statecheck.ExpectSensitiveValue(
-					"k3s_server.main",
-					tfjsonpath.New("token"),
-				),
-			},
-		}, {
-			Config:          providerConfig,
-			ConfigDirectory: config.StaticDirectory("../../tests/k3s_server"),
-			ConfigVariables: map[string]config.Variable{
-				"host":        config.StringVariable(inputs.Nodes[0]),
-				"user":        config.StringVariable(inputs.User),
-				"private_key": config.StringVariable(inputs.SshKey),
-			},
-			Destroy: true,
-		}},
-	})
-}
-
-func TestAccK3sServerUpdateResource(t *testing.T) {
-	inputs, err := LoadInputs(os.Getenv("TEST_JSON_PATH"))
-	if err != nil {
-		t.Errorf("%v", err.Error())
-	}
-
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				ConfigDirectory: config.StaticDirectory("../../tests/k3s_server"),
 				Config:          providerConfig,
 				ConfigVariables: map[string]config.Variable{
-					"host":        config.StringVariable(inputs.Nodes[1]),
+					"host":        config.StringVariable(inputs.Nodes[0]),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 				},
@@ -77,7 +42,7 @@ func TestAccK3sServerUpdateResource(t *testing.T) {
 				ConfigDirectory: config.StaticDirectory("../../tests/k3s_server"),
 				Config:          providerConfig,
 				ConfigVariables: map[string]config.Variable{
-					"host":        config.StringVariable(inputs.Nodes[1]),
+					"host":        config.StringVariable(inputs.Nodes[0]),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 					"config":      config.StringVariable("embedded-registry: true"),
@@ -91,13 +56,14 @@ func TestAccK3sServerUpdateResource(t *testing.T) {
 				ConfigDirectory: config.StaticDirectory("../../tests/k3s_server"),
 				Config:          providerConfig,
 				ConfigVariables: map[string]config.Variable{
-					"host":        config.StringVariable(inputs.Nodes[1]),
+					"host":        config.StringVariable(inputs.Nodes[0]),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 					"config":      config.StringVariable("embedded-registry: true"),
 				},
 				Destroy: true,
-			}},
+			},
+		},
 	})
 }
 
@@ -107,15 +73,14 @@ func TestAccK3sServerImportResource(t *testing.T) {
 		t.Errorf("%v", err.Error())
 	}
 
-	client, err := inputs.SshClient(t, 6)
+	client, err := inputs.SshClient(t, 1)
 	if err != nil {
 		t.Errorf("%v", err.Error())
 	}
-	installLogs, err := client.Run("curl -sfL https://get.k3s.io | sh -")
-	if err != nil {
+
+	if _, err := client.Run("curl -sfL https://get.k3s.io | sh -"); err != nil {
 		t.Errorf("%v", err.Error())
 	}
-	t.Log(installLogs)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -125,7 +90,7 @@ func TestAccK3sServerImportResource(t *testing.T) {
 				ImportState:        true,
 				ConfigDirectory:    config.StaticDirectory("../../tests/k3s_server"),
 				ResourceName:       "k3s_server.main",
-				ImportStateId:      fmt.Sprintf("host=%s,user=%s,private_key=%s", inputs.Nodes[6], inputs.User, inputs.SshKey),
+				ImportStateId:      fmt.Sprintf("host=%s,user=%s,private_key=%s", inputs.Nodes[1], inputs.User, inputs.SshKey),
 				Config:             providerConfig,
 				ImportStatePersist: true,
 			},
@@ -136,7 +101,7 @@ func TestAccK3sServerImportResource(t *testing.T) {
 				ExpectNonEmptyPlan: false,
 				PlanOnly:           true,
 				ConfigVariables: map[string]config.Variable{
-					"host":        config.StringVariable(inputs.Nodes[6]),
+					"host":        config.StringVariable(inputs.Nodes[1]),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 				},
