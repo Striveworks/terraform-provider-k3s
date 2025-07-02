@@ -74,6 +74,8 @@ EOT
 
 Import is supported using the following syntax:
 
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
 ```shell
 # Import with Password
 tofu import k3s_agent.main "host=192.168.10.1,user=ubuntu,password=$PASS"
