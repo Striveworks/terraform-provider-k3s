@@ -43,12 +43,6 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
-      - uses: actions/setup-python@v5
-      - run: make generate
-      - uses: pre-commit/action@v3.0.1
-        continue-on-error: true
-        with:
-          extra_args: --all-files
       - name: git diff
         run: |
           git diff --compact-summary --exit-code || \

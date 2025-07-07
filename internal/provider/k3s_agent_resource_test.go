@@ -1,4 +1,4 @@
-package provider
+package provider_test
 
 import (
 	"fmt"
@@ -14,6 +14,8 @@ import (
 	"striveworks.us/terraform-provider-k3s/internal/k3s"
 )
 
+var K3sAgentStaticFile = config.StaticFile("../../examples/resources/k3s_agent/resource.tf")
+
 func TestAccK3sAgentResource(t *testing.T) {
 
 	inputs, err := LoadInputs(os.Getenv("TEST_JSON_PATH"))
@@ -25,13 +27,13 @@ func TestAccK3sAgentResource(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				ConfigDirectory: config.StaticDirectory("../../tests/k3s_agent"),
-				Config:          providerConfig,
+				ConfigFile: K3sAgentStaticFile,
+				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
-					"server_host":  config.StringVariable(inputs.Nodes[2]),
-					"agent_host_1": config.StringVariable(inputs.Nodes[3]),
-					"user":         config.StringVariable(inputs.User),
-					"private_key":  config.StringVariable(inputs.SshKey),
+					"server_host": config.StringVariable(inputs.Nodes[2]),
+					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[3])),
+					"user":        config.StringVariable(inputs.User),
+					"private_key": config.StringVariable(inputs.SshKey),
 				},
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectSensitiveValue(
@@ -39,7 +41,7 @@ func TestAccK3sAgentResource(t *testing.T) {
 						tfjsonpath.New("token"),
 					),
 					statecheck.ExpectKnownValue(
-						"k3s_agent.main",
+						"k3s_agent.main[0]",
 						tfjsonpath.New("active"),
 						knownvalue.NotNull(),
 					),
@@ -69,16 +71,15 @@ func TestAccK3sAgentResource(t *testing.T) {
 				},
 				ImportState:        true,
 				ImportStatePersist: true,
-				ResourceName:       "k3s_agent.secondary[0]",
+				ResourceName:       "k3s_agent.main[1]",
 				ImportStateId:      fmt.Sprintf("host=%s,user=%s,private_key=%s", inputs.Nodes[4], inputs.User, inputs.SshKey),
-				ConfigDirectory:    config.StaticDirectory("../../tests/k3s_agent"),
+				ConfigFile:         K3sAgentStaticFile,
 				ConfigVariables: map[string]config.Variable{
-					"server_host":  config.StringVariable(inputs.Nodes[2]),
-					"agent_host_1": config.StringVariable(inputs.Nodes[3]),
-					"agent_host_2": config.StringVariable(inputs.Nodes[4]),
-					"user":         config.StringVariable(inputs.User),
-					"private_key":  config.StringVariable(inputs.SshKey),
-					"secondary":    config.BoolVariable(true),
+					"server_host": config.StringVariable(inputs.Nodes[2]),
+					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[3]), config.StringVariable(inputs.Nodes[4])),
+					"user":        config.StringVariable(inputs.User),
+					"private_key": config.StringVariable(inputs.SshKey),
+					"secondary":   config.BoolVariable(true),
 				},
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectSensitiveValue(
@@ -86,12 +87,12 @@ func TestAccK3sAgentResource(t *testing.T) {
 						tfjsonpath.New("token"),
 					),
 					statecheck.ExpectKnownValue(
-						"k3s_agent.main",
+						"k3s_agent.main[0]",
 						tfjsonpath.New("active"),
 						knownvalue.NotNull(),
 					),
 					statecheck.ExpectKnownValue(
-						"k3s_agent.secondary[0]",
+						"k3s_agent.main[1]",
 						tfjsonpath.New("active"),
 						knownvalue.NotNull(),
 					),
@@ -100,14 +101,13 @@ func TestAccK3sAgentResource(t *testing.T) {
 				Config:             providerConfig,
 				ExpectNonEmptyPlan: false,
 				PlanOnly:           true,
-				ConfigDirectory:    config.StaticDirectory("../../tests/k3s_agent"),
+				ConfigFile:         K3sAgentStaticFile,
 				ConfigVariables: map[string]config.Variable{
-					"server_host":  config.StringVariable(inputs.Nodes[2]),
-					"agent_host_1": config.StringVariable(inputs.Nodes[3]),
-					"agent_host_2": config.StringVariable(inputs.Nodes[4]),
-					"user":         config.StringVariable(inputs.User),
-					"private_key":  config.StringVariable(inputs.SshKey),
-					"secondary":    config.BoolVariable(true),
+					"server_host": config.StringVariable(inputs.Nodes[2]),
+					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[3]), config.StringVariable(inputs.Nodes[4])),
+					"user":        config.StringVariable(inputs.User),
+					"private_key": config.StringVariable(inputs.SshKey),
+					"secondary":   config.BoolVariable(true),
 				},
 			},
 		},

@@ -1,40 +1,60 @@
-// Basic example with ssh key
-variable "ssk_key" {
+// Simple mode
+
+variable "host" {
+  type    = string
+  default = ""
+}
+
+variable "user" {
+  type = string
+}
+
+variable "private_key" {
   type      = string
   sensitive = true
 }
 
-resource "k3s_server" "main" {
-  host        = "192.168.10.1"
-  user        = "ubuntu"
-  private_key = var.ssk_key
-}
-
-// Basic example with password
-variable "password" {
-  type      = string
-  sensitive = true
+variable "config" {
+  type    = string
+  default = null
 }
 
 resource "k3s_server" "main" {
-  host     = "192.168.10.1"
-  user     = "ubuntu"
-  password = var.password
+  count       = var.host != "" ? 1 : 0
+  host        = var.host
+  user        = var.user
+  private_key = var.private_key
+  config      = var.config
 }
 
-// Pass k3s custom options with config.yaml
-variable "password" {
-  type      = string
-  sensitive = true
+// HA Server mode
+
+variable "hosts" {
+  type    = list(string)
+  default = []
 }
 
-resource "k3s_server" "main" {
-  host     = "192.168.10.1"
-  user     = "ubuntu"
-  password = var.password
-  config   = <<EOT
-write-kubeconfig-mode: 600
-node-taint:
-  - alice=bob:NoExecute
-EOT
+
+resource "k3s_server" "init" {
+  count       = length(var.hosts) > 0 ? 1 : 0
+  host        = var.hosts[0]
+  user        = var.user
+  private_key = var.private_key
+  config      = var.config
+  highly_available = {
+    cluster_init = true
+  }
+}
+
+resource "k3s_server" "join" {
+  count = length(var.hosts) - 1
+
+  host        = var.hosts[count.index + 1]
+  user        = var.user
+  private_key = var.private_key
+  config      = var.config
+  highly_available = {
+    token  = k3s_server.init[0].token
+    server = k3s_server.init[0].server
+  }
 }

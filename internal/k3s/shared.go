@@ -54,7 +54,7 @@ func systemdStatus(unit string, client ssh_client.SSHClient) (bool, error) {
 }
 
 // Commands for configuring server/agent config.
-func configCommands(ctx context.Context, config map[string]any) ([]string, error) {
+func configCommands(ctx context.Context, config map[any]any) ([]string, error) {
 	tflog.Debug(ctx, "Reading config path")
 	configPath := fmt.Sprintf("%s/config.yaml", CONFIG_DIR)
 	configContents, err := yaml.Marshal(config)
@@ -71,7 +71,7 @@ func configCommands(ctx context.Context, config map[string]any) ([]string, error
 }
 
 // Commands for configuring server/agent registry.
-func registryCommands(ctx context.Context, registry map[string]any) (commands []string, err error) {
+func registryCommands(ctx context.Context, registry map[any]any) (commands []string, err error) {
 	tflog.Debug(ctx, "Reading registries")
 
 	registryPath := fmt.Sprintf("%s/registries.yaml", CONFIG_DIR)
@@ -96,7 +96,7 @@ func registryCommands(ctx context.Context, registry map[string]any) (commands []
 }
 
 // Will import a remote yaml file.
-func readYaml(client ssh_client.SSHClient, file string, missingOk ...bool) (map[string]any, error) {
+func readYaml(client ssh_client.SSHClient, file string, missingOk ...bool) (map[any]any, error) {
 	res, err := client.ReadFile(file, len(missingOk) > 0 && missingOk[0], true)
 	if err != nil {
 		return nil, err
@@ -106,18 +106,18 @@ func readYaml(client ssh_client.SSHClient, file string, missingOk ...bool) (map[
 		return nil, nil
 	}
 
-	var contents map[string]any
+	var contents map[any]any
 	if err := yaml.Unmarshal([]byte(res), &contents); err != nil {
 		return nil, err
 	}
 	return contents, nil
 }
 
-func getConfig(client ssh_client.SSHClient) (map[string]any, error) {
+func getConfig(client ssh_client.SSHClient) (map[any]any, error) {
 	return readYaml(client, "/etc/rancher/k3s/config.yaml", true)
 }
 
 // Retrieve kubeconfig.
-func getRegistry(client ssh_client.SSHClient) (map[string]any, error) {
+func getRegistry(client ssh_client.SSHClient) (map[any]any, error) {
 	return readYaml(client, "/etc/rancher/k3s/registry.yaml", true)
 }

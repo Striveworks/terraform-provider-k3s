@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"github.com/joho/godotenv"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
@@ -16,16 +17,16 @@ type K3sServer interface {
 	// Kubeconfig used for client access to the cluster
 	KubeConfig() string
 	// The k3s config
-	Config() map[string]any
+	Config() map[any]any
 	// The k3s registry config
-	Registry() map[string]any
+	Registry() map[any]any
 }
 
 var _ K3sServer = &server{}
 
 type server struct {
-	config     map[string]any
-	registry   map[string]any
+	config     map[any]any
+	registry   map[any]any
 	token      string
 	kubeConfig string
 	version    *string
@@ -44,22 +45,36 @@ func (s *server) Token() string {
 }
 
 // Token implements K3sServer.
-func (s *server) Config() map[string]any {
+func (s *server) Config() map[any]any {
 	return s.config
 }
 
 // Token implements K3sServer.
-func (s *server) Registry() map[string]any {
+func (s *server) Registry() map[any]any {
 	return s.registry
 }
 
-func NewK3sServerComponent(ctx context.Context, config map[string]any, registry map[string]any, version *string, binDir string) K3sServer {
+// New k3s server component.
+func NewK3sServerComponent(ctx context.Context, config map[any]any, registry map[any]any, version *string, binDir string) K3sServer {
 	return &server{
 		ctx:      ctx,
 		config:   config,
 		registry: registry,
 		version:  version,
 		binDir:   binDir,
+	}
+}
+
+// New k3s ha server component meant to join a server that has already been initialized.
+func NewK3sServerHAComponent(ctx context.Context, config map[any]any, registry map[any]any, version *string, token string, binDir string) K3sServer {
+
+	return &server{
+		ctx:      ctx,
+		config:   config,
+		registry: registry,
+		version:  version,
+		binDir:   binDir,
+		token:    token,
 	}
 }
 
@@ -116,6 +131,11 @@ func (s *server) RunInstall(client ssh_client.SSHClient) (err error) {
 		"INSTALL_K3S_SKIP_START=true",
 		fmt.Sprintf("BIN_DIR=%s", s.binDir),
 		fmt.Sprintf("INSTALL_K3S_EXEC='--config %s/config.yaml'", CONFIG_DIR),
+	}
+
+	// Join existing cluster as HA node
+	if s.token != "" {
+		flags = append(flags, fmt.Sprintf("K3S_TOKEN=%s", s.token))
 	}
 
 	if s.version != nil {
@@ -206,9 +226,11 @@ func (s *server) Update(client ssh_client.SSHClient) error {
 
 func (s *server) Resync(client ssh_client.SSHClient) (err error) {
 
-	s.token, err = s.getToken(client)
-	if err != nil {
-		return
+	if s.token == "" {
+		s.token, err = s.getToken(client)
+		if err != nil {
+			return
+		}
 	}
 
 	s.kubeConfig, err = s.getKubeConfig(client)
@@ -228,10 +250,21 @@ func (s *server) Resync(client ssh_client.SSHClient) (err error) {
 
 // Retrieve server token.
 func (s *server) getToken(client ssh_client.SSHClient) (string, error) {
-	token, err := client.ReadFile("/var/lib/rancher/k3s/server/token", false, true)
+	// Look in default location
+	token, err := client.ReadFile("/var/lib/rancher/k3s/server/token", true, true)
 	if err != nil {
 		return "", err
 	}
+
+	// Look in env file
+	if token == "" {
+		env, err := s.getServerEnv(client)
+		if err != nil {
+			return "", err
+		}
+		token = env["K3S_TOKEN"]
+	}
+
 	token = strings.Trim(token, "\n")
 	tflog.MaskMessageStrings(s.ctx, token)
 	return token, nil
@@ -268,4 +301,14 @@ func updateKubeConfig(kubeconfigText string, host string) (string, error) {
 	}
 
 	return string(fixed), nil
+}
+
+// Retrieve server token.
+func (s *server) getServerEnv(client ssh_client.SSHClient) (map[string]string, error) {
+	file, err := client.ReadFile("/etc/systemd/system/k3s.service.env", false, true)
+	if err != nil {
+		return nil, err
+	}
+	tflog.Info(s.ctx, fmt.Sprintf("K3s service file %v", file))
+	return godotenv.Unmarshal(file)
 }

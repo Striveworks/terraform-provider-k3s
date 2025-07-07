@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int32default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -45,6 +46,12 @@ func (s *ServerClientModel) sshClient(ctx context.Context) (ssh_client.SSHClient
 	return ssh_client.NewSSHClient(ctx, addr, s.User.ValueString(), s.PrivateKey.ValueString(), s.Password.ValueString())
 }
 
+type HaConfig struct {
+	ClusterInit types.Bool   `tfsdk:"cluster_init"`
+	Token       types.String `tfsdk:"token"`
+	Server      types.String `tfsdk:"server"`
+}
+
 // ServerClientModel describes the resource data model.
 type ServerClientModel struct {
 	NodeAuth
@@ -55,8 +62,11 @@ type ServerClientModel struct {
 	BinDir      types.String `tfsdk:"bin_dir"`
 	K3sConfig   types.String `tfsdk:"config"`
 	K3sRegistry types.String `tfsdk:"registry"`
+	HaConfig    *HaConfig    `tfsdk:"highly_available"`
+
 	// Outputs
 	Id         types.String `tfsdk:"id"`
+	Server     types.String `tfsdk:"server"`
 	KubeConfig types.String `tfsdk:"kubeconfig"`
 	Token      types.String `tfsdk:"token"`
 	Active     types.Bool   `tfsdk:"active"`
@@ -65,7 +75,9 @@ type ServerClientModel struct {
 // Schema implements resource.ResourceWithImportState.
 func (s *K3sServerResource) Schema(context context.Context, resource resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Creates a k3s server resource. Only one of `password` or `private_key` can be passed",
+		MarkdownDescription: ("Creates a k3s server resource. Only one of `password` or `private_key` can be passed.\n" +
+			"If ran in highly available mode, it is up to the consumers of this module to correctly implement " +
+			"the raft protocol and create an odd number of ha nodes."),
 		Attributes: map[string]schema.Attribute{
 			// Inputs
 			"bin_dir": schema.StringAttribute{
@@ -134,11 +146,40 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
+			"server": schema.StringAttribute{
+				Computed: true,
+				// Optional:            false,
+				MarkdownDescription: "Server url  used for joining nodes to the cluster.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
 			"active": schema.BoolAttribute{
 				Computed:            true,
 				MarkdownDescription: "The health of the server",
 				PlanModifiers: []planmodifier.Bool{
 					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"highly_available": schema.SingleNestedAttribute{
+				Optional:    true,
+				Description: "Run server node in highly available mode",
+				Attributes: map[string]schema.Attribute{
+					"cluster_init": schema.BoolAttribute{
+						Computed:            true,
+						Optional:            true,
+						Default:             booldefault.StaticBool(false),
+						MarkdownDescription: "Node is the init node for the HA cluster",
+					},
+					"server": schema.StringAttribute{
+						Optional:            true,
+						MarkdownDescription: "Url of init node",
+					},
+					"token": schema.StringAttribute{
+						Optional:            true,
+						Sensitive:           true,
+						MarkdownDescription: "Server token used for joining nodes to the cluster",
+					},
 				},
 			},
 		},
@@ -180,14 +221,14 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	}
 	tflog.Debug(ctx, "SSH client configured")
 
-	config, err := ParseK3sConfig(&data.K3sConfig)
+	config, err := ParseYamlString(data.K3sConfig)
 	if err != nil {
 		resp.Diagnostics.AddError("Creating k3s config", err.Error())
 		return
 	}
 	tflog.Debug(ctx, "K3s config parsed")
 
-	registry, err := ParseK3sRegistry(&data.K3sRegistry)
+	registry, err := ParseYamlString(data.K3sRegistry)
 	if err != nil {
 		resp.Diagnostics.AddError("Creating k3s registry", err.Error())
 		return
@@ -195,7 +236,20 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	config["embedded-registry"] = registry != nil
 	tflog.Debug(ctx, "K3s registry parsed")
 
-	server := k3s.NewK3sServerComponent(ctx, config, registry, s.version, data.BinDir.ValueString())
+	var server k3s.K3sServer
+	if data.HaConfig != nil {
+		if data.HaConfig.ClusterInit.ValueBool() {
+			tflog.Info(ctx, "Running in node HA init mode")
+			config["cluster-init"] = true
+			server = k3s.NewK3sServerHAComponent(ctx, config, registry, s.version, "", data.BinDir.ValueString())
+		} else {
+			tflog.Info(ctx, "Running in node HA join mode")
+			config["server"] = data.HaConfig.Server.ValueString()
+			server = k3s.NewK3sServerHAComponent(ctx, config, registry, s.version, data.HaConfig.Token.ValueString(), data.BinDir.ValueString())
+		}
+	} else {
+		server = k3s.NewK3sServerComponent(ctx, config, registry, s.version, data.BinDir.ValueString())
+	}
 
 	tflog.Info(ctx, "Running k3s server preq steps")
 	if err := server.RunPreReqs(sshClient); err != nil {
@@ -238,6 +292,7 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	data.KubeConfig = types.StringValue(server.KubeConfig())
 	data.Token = types.StringValue(server.Token())
 	data.Id = types.StringValue(fmt.Sprintf("server,%s", data.Host))
+	data.Server = types.StringValue(fmt.Sprintf("https://%s:6443", data.Host.ValueString()))
 
 	tflog.Info(ctx, "Created a k3s server resource")
 	// Save data into Terraform state
@@ -374,7 +429,7 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 // ConfigValidators implements resource.ResourceWithConfigValidators.
 func (s *K3sServerResource) ConfigValidators(ctx context.Context) []resource.ConfigValidator {
 	return []resource.ConfigValidator{
-		NewK3sServerValidator(),
+		&k3sServerAuthValdiator{},
 	}
 }
 
@@ -412,6 +467,14 @@ func (s *K3sServerResource) ImportState(ctx context.Context, req resource.Import
 		if kv[0] == "binDir" {
 			data.BinDir = types.StringValue(kv[1])
 		}
+		if kv[0] == "cluster_init" {
+			ha := HaConfig{}
+			if data.HaConfig != nil {
+				ha = *data.HaConfig
+			}
+			ha.ClusterInit = types.BoolValue(kv[1] == "true")
+			data.HaConfig = &ha
+		}
 	}
 
 	sshClient, err := data.sshClient(ctx)
@@ -438,6 +501,15 @@ func (s *K3sServerResource) ImportState(ctx context.Context, req resource.Import
 	data.KubeConfig = types.StringValue(server.KubeConfig())
 	data.Token = types.StringValue(server.Token())
 
+	if data.HaConfig != nil {
+		if !data.HaConfig.ClusterInit.ValueBool() {
+			if server, ok := server.Config()["server"].(string); ok {
+				data.HaConfig.Server = types.StringValue(server)
+			}
+			data.HaConfig.Token = types.StringValue(server.Token())
+		}
+	}
+
 	if serverConfig := server.Config(); serverConfig != nil {
 		config, err := yaml.Marshal(serverConfig)
 		if err != nil {
@@ -461,5 +533,51 @@ func (s *K3sServerResource) ImportState(ctx context.Context, req resource.Import
 	tflog.Info(ctx, "Imported a k3s server resource")
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), types.StringValue(fmt.Sprintf("server,%s", data.Host)))...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
 
+type k3sServerAuthValdiator struct{}
+
+var _ resource.ConfigValidator = &k3sServerAuthValdiator{}
+
+// Description implements resource.ConfigValidator.
+func (k *k3sServerAuthValdiator) Description(context.Context) string {
+	return "Validates the authentication for the server"
+}
+
+// MarkdownDescription implements resource.ConfigValidator.
+func (k *k3sServerAuthValdiator) MarkdownDescription(context.Context) string {
+	var desc MarkdownDescription = `
+Allows either Password or Private Key, but not both
+`
+
+	return desc.ToMarkdown()
+}
+
+// ValidateResource implements resource.ConfigValidator.
+func (k *k3sServerAuthValdiator) ValidateResource(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data ServerClientModel
+
+	// Read Terraform state data into the model
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+
+	if data.PrivateKey.IsNull() && data.Password.IsNull() {
+		resp.Diagnostics.AddError("No auth", "Neither password nor private key was passed")
+		return
+	}
+
+	if !data.PrivateKey.IsNull() && !data.Password.IsNull() {
+		resp.Diagnostics.AddError("Conflicting auth", "Both password and private key were passed, only pass one")
+		return
+	}
+
+	if data.HaConfig != nil {
+		if !data.HaConfig.ClusterInit.ValueBool() && (data.HaConfig.Token.IsNull() || data.HaConfig.Server.IsNull()) {
+			resp.Diagnostics.AddError("Highly available", "When not in cluster-init, token and server must be passed")
+			return
+		}
+		if data.HaConfig.ClusterInit.ValueBool() && (!data.HaConfig.Token.IsNull() || !data.HaConfig.Server.IsNull()) {
+			resp.Diagnostics.AddError("Highly available", "When in cluster-init, token and server must not be passed")
+			return
+		}
+	}
 }

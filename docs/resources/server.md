@@ -3,55 +3,77 @@
 page_title: "k3s_server Resource - k3s"
 subcategory: ""
 description: |-
-  Creates a k3s server resource. Only one of password or private_key can be passed
+  Creates a k3s server resource. Only one of password or private_key can be passed.
+  If ran in highly available mode, it is up to the consumers of this module to correctly implement the raft protocol and create an odd number of ha nodes.
 ---
 
 # k3s_server (Resource)
 
-Creates a k3s server resource. Only one of `password` or `private_key` can be passed
+Creates a k3s server resource. Only one of `password` or `private_key` can be passed.
+If ran in highly available mode, it is up to the consumers of this module to correctly implement the raft protocol and create an odd number of ha nodes.
 
 ## Example Usage
 
 ```terraform
-// Basic example with ssh key
-variable "ssk_key" {
+// Simple mode
+
+variable "host" {
+  type    = string
+  default = ""
+}
+
+variable "user" {
+  type = string
+}
+
+variable "private_key" {
   type      = string
   sensitive = true
 }
 
-resource "k3s_server" "main" {
-  host        = "192.168.10.1"
-  user        = "ubuntu"
-  private_key = var.ssk_key
-}
-
-// Basic example with password
-variable "password" {
-  type      = string
-  sensitive = true
+variable "config" {
+  type    = string
+  default = null
 }
 
 resource "k3s_server" "main" {
-  host     = "192.168.10.1"
-  user     = "ubuntu"
-  password = var.password
+  count       = var.host != "" ? 1 : 0
+  host        = var.host
+  user        = var.user
+  private_key = var.private_key
+  config      = var.config
 }
 
-// Pass k3s custom options with config.yaml
-variable "password" {
-  type      = string
-  sensitive = true
+// HA Server mode
+
+variable "hosts" {
+  type    = list(string)
+  default = []
 }
 
-resource "k3s_server" "main" {
-  host     = "192.168.10.1"
-  user     = "ubuntu"
-  password = var.password
-  config   = <<EOT
-write-kubeconfig-mode: 600
-node-taint:
-  - alice=bob:NoExecute
-EOT
+
+resource "k3s_server" "init" {
+  count       = length(var.hosts) > 0 ? 1 : 0
+  host        = var.hosts[0]
+  user        = var.user
+  private_key = var.private_key
+  config      = var.config
+  highly_available = {
+    cluster_init = true
+  }
+}
+
+resource "k3s_server" "join" {
+  count = length(var.hosts) - 1
+
+  host        = var.hosts[count.index + 1]
+  user        = var.user
+  private_key = var.private_key
+  config      = var.config
+  highly_available = {
+    token  = k3s_server.init[0].token
+    server = k3s_server.init[0].server
+  }
 }
 ```
 
@@ -67,6 +89,7 @@ EOT
 
 - `bin_dir` (String) Value of a path used to put the k3s binary
 - `config` (String) K3s server config
+- `highly_available` (Attributes) Run server node in highly available mode (see [below for nested schema](#nestedatt--highly_available))
 - `password` (String, Sensitive) Username of the target server
 - `port` (Number) Override default SSH port (22)
 - `private_key` (String, Sensitive) Private ssh key value to be used in place of a password
@@ -77,6 +100,16 @@ EOT
 - `active` (Boolean) The health of the server
 - `id` (String) Id of the k3s server resource
 - `kubeconfig` (String) KubeConfig for the cluster
+- `server` (String) Server url  used for joining nodes to the cluster.
+- `token` (String, Sensitive) Server token used for joining nodes to the cluster
+
+<a id="nestedatt--highly_available"></a>
+### Nested Schema for `highly_available`
+
+Optional:
+
+- `cluster_init` (Boolean) Node is the init node for the HA cluster
+- `server` (String) Url of init node
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster
 
 ## Import
@@ -91,4 +124,10 @@ tofu import k3s_server.main "host=192.168.10.1,user=ubuntu,password=$PASS"
 
 # Import with key
 tofu import k3s_server.main "host=192.168.10.1,user=ubuntu,private_key=$SSH_KEY"
+
+# Ha Init Node
+tofu import k3s_server.main "host=192.168.10.1,user=ubuntu,private_key=$SSH_KEY,cluster_init=true"
+
+# Ha Join Node
+tofu import k3s_server.main "host=192.168.10.1,user=ubuntu,private_key=$SSH_KEY,cluster_init=false"
 ```

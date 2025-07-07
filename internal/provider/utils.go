@@ -14,18 +14,14 @@ func (s MarkdownDescription) ToMarkdown() string {
 	return strings.ReplaceAll(string(s), "!!!", "```")
 }
 
-func ParseK3sRegistry(value *basetypes.StringValue) (registry map[string]any, err error) {
-	if value.IsNull() {
-		return
-	}
-	err = yaml.Unmarshal([]byte(value.ValueString()), &registry)
-	return
-}
-
-func ParseK3sConfig(value *basetypes.StringValue) (config map[string]any, err error) {
-	config, err = ParseK3sRegistry(value)
-	if config == nil {
-		config = make(map[string]any)
+func ParseYamlString(value basetypes.StringValue, mergeWith ...basetypes.StringValue) (config map[any]any, err error) {
+	all := []basetypes.StringValue{value}
+	for _, cfg := range append(all, mergeWith...) {
+		local := make(map[any]any)
+		if err = yaml.Unmarshal([]byte(cfg.ValueString()), &local); err != nil {
+			return
+		}
+		config = mergeMaps(config, local)
 	}
 	return
 }
@@ -34,4 +30,25 @@ type NodeAuth struct {
 	PrivateKey types.String `tfsdk:"private_key"`
 	Password   types.String `tfsdk:"password"`
 	User       types.String `tfsdk:"user"`
+}
+
+func mergeMaps(a, b map[interface{}]interface{}) map[interface{}]interface{} {
+	out := make(map[interface{}]interface{}, len(a))
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		// If you use map[string]interface{}, ok is always false here.
+		// Because yaml.Unmarshal will give you map[interface{}]interface{}.
+		if v, ok := v.(map[interface{}]interface{}); ok {
+			if bv, ok := out[k]; ok {
+				if bv, ok := bv.(map[interface{}]interface{}); ok {
+					out[k] = mergeMaps(bv, v)
+					continue
+				}
+			}
+		}
+		out[k] = v
+	}
+	return out
 }

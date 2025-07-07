@@ -5,6 +5,7 @@ repos:
       - id: check-yaml
       - id: end-of-file-fixer
       - id: trailing-whitespace
+        exclude: docs/
       - id: check-merge-conflict
   - repo: local
     hooks:

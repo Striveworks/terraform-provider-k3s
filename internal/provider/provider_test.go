@@ -1,4 +1,4 @@
-package provider
+package provider_test
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+	provider "striveworks.us/terraform-provider-k3s/internal/provider"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
@@ -27,7 +28,7 @@ provider "k3s" {}
 // The factory function is called for each Terraform CLI command to create a provider
 // server that the CLI can connect to and interact with.
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
-	"k3s": providerserver.NewProtocol6WithError(New("")()),
+	"k3s": providerserver.NewProtocol6WithError(provider.New("")()),
 }
 
 type StandupInputs struct {

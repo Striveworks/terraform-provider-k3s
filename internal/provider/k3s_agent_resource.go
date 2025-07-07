@@ -62,7 +62,7 @@ func (s *AgentClientModel) sshClient(ctx context.Context) (ssh_client.SSHClient,
 }
 
 func (s *AgentClientModel) buildAgent(ctx context.Context, version *string) (k3s.K3sAgent, error) {
-	config := make(map[string]any)
+	config := make(map[any]any)
 	if err := yaml.Unmarshal([]byte(s.K3sConfig.ValueString()), &config); err != nil {
 		return nil, err
 	}
@@ -345,7 +345,7 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 // ConfigValidators implements resource.ResourceWithConfigValidators.
 func (k *K3sAgentResource) ConfigValidators(ctx context.Context) []resource.ConfigValidator {
 	return []resource.ConfigValidator{
-		&k3sAgentAuthValdiator{},
+		&k3sAgentAuthValidator{},
 	}
 }
 
@@ -433,4 +433,38 @@ func (k *K3sAgentResource) ImportState(ctx context.Context, req resource.ImportS
 
 func NewK3sAgentResource() resource.Resource {
 	return &K3sAgentResource{}
+}
+
+// Validation
+
+type k3sAgentAuthValidator struct{}
+
+var _ resource.ConfigValidator = &k3sAgentAuthValidator{}
+
+// Description implements resource.ConfigValidator.
+func (k *k3sAgentAuthValidator) Description(context.Context) string {
+	return "Validates the authentication for the agent"
+}
+
+// MarkdownDescription implements resource.ConfigValidator.
+func (k *k3sAgentAuthValidator) MarkdownDescription(context.Context) string {
+	return "Allows either Password or Private Key, but not both"
+}
+
+// ValidateResource implements resource.ConfigValidator.
+func (k *k3sAgentAuthValidator) ValidateResource(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data AgentClientModel
+
+	// Read Terraform state data into the model
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+
+	if data.PrivateKey.IsNull() && data.Password.IsNull() {
+		resp.Diagnostics.AddError("No auth", "Neither password nor private key was passed")
+		return
+	}
+
+	if !data.PrivateKey.IsNull() && !data.Password.IsNull() {
+		resp.Diagnostics.AddError("Conflicting auth", "Both password and private key were passed, only pass one")
+		return
+	}
 }

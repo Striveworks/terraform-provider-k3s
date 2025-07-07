@@ -15,14 +15,14 @@ import (
 
 type K3sAgent interface {
 	K3sComponent
-	Config() map[string]any
+	Config() map[any]any
 	Server() string
 }
 
 var _ K3sAgent = &agent{}
 
 type agent struct {
-	config  map[string]any
+	config  map[any]any
 	version *string
 	ctx     context.Context
 	binDir  string
@@ -31,11 +31,11 @@ type agent struct {
 }
 
 // Token implements K3sAgent.
-func (a *agent) Config() map[string]any {
+func (a *agent) Config() map[any]any {
 	return a.config
 }
 
-func NewK3sAgentComponent(ctx context.Context, config map[string]any, version *string, token string, server string, binDir string) K3sAgent {
+func NewK3sAgentComponent(ctx context.Context, config map[any]any, version *string, token string, server string, binDir string) K3sAgent {
 	return &agent{ctx: ctx, config: config, version: version, binDir: binDir, token: token, server: server}
 }
 
