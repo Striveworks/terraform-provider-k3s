@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -16,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"gopkg.in/yaml.v2"
 	"striveworks.us/terraform-provider-k3s/internal/k3s"
@@ -52,6 +54,14 @@ type HaConfig struct {
 	Server      types.String `tfsdk:"server"`
 }
 
+func (m HaConfig) AttributeTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"cluster_init": types.BoolType,
+		"token":        types.StringType,
+		"server":       types.StringType,
+	}
+}
+
 // ServerClientModel describes the resource data model.
 type ServerClientModel struct {
 	NodeAuth
@@ -62,7 +72,7 @@ type ServerClientModel struct {
 	BinDir      types.String `tfsdk:"bin_dir"`
 	K3sConfig   types.String `tfsdk:"config"`
 	K3sRegistry types.String `tfsdk:"registry"`
-	HaConfig    *HaConfig    `tfsdk:"highly_available"`
+	HaConfig    types.Object `tfsdk:"highly_available"`
 
 	// Outputs
 	Id         types.String `tfsdk:"id"`
@@ -237,15 +247,17 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	tflog.Debug(ctx, "K3s registry parsed")
 
 	var server k3s.K3sServer
-	if data.HaConfig != nil {
-		if data.HaConfig.ClusterInit.ValueBool() {
+	if !data.HaConfig.IsNull() {
+		var haConfig HaConfig
+		data.HaConfig.As(ctx, &haConfig, basetypes.ObjectAsOptions{})
+		if haConfig.ClusterInit.ValueBool() {
 			tflog.Info(ctx, "Running in node HA init mode")
 			config["cluster-init"] = true
 			server = k3s.NewK3sServerHAComponent(ctx, config, registry, s.version, "", data.BinDir.ValueString())
 		} else {
 			tflog.Info(ctx, "Running in node HA join mode")
-			config["server"] = data.HaConfig.Server.ValueString()
-			server = k3s.NewK3sServerHAComponent(ctx, config, registry, s.version, data.HaConfig.Token.ValueString(), data.BinDir.ValueString())
+			config["server"] = haConfig.Server.ValueString()
+			server = k3s.NewK3sServerHAComponent(ctx, config, registry, s.version, haConfig.Token.ValueString(), data.BinDir.ValueString())
 		}
 	} else {
 		server = k3s.NewK3sServerComponent(ctx, config, registry, s.version, data.BinDir.ValueString())
@@ -468,12 +480,12 @@ func (s *K3sServerResource) ImportState(ctx context.Context, req resource.Import
 			data.BinDir = types.StringValue(kv[1])
 		}
 		if kv[0] == "cluster_init" {
-			ha := HaConfig{}
-			if data.HaConfig != nil {
-				ha = *data.HaConfig
+			haConfig := HaConfig{}
+			if !data.HaConfig.IsNull() {
+				data.HaConfig.As(ctx, &haConfig, basetypes.ObjectAsOptions{})
 			}
-			ha.ClusterInit = types.BoolValue(kv[1] == "true")
-			data.HaConfig = &ha
+			haConfig.ClusterInit = types.BoolValue(kv[1] == "true")
+			data.HaConfig, _ = types.ObjectValueFrom(ctx, haConfig.AttributeTypes(), haConfig)
 		}
 	}
 
@@ -501,13 +513,16 @@ func (s *K3sServerResource) ImportState(ctx context.Context, req resource.Import
 	data.KubeConfig = types.StringValue(server.KubeConfig())
 	data.Token = types.StringValue(server.Token())
 
-	if data.HaConfig != nil {
-		if !data.HaConfig.ClusterInit.ValueBool() {
+	if !data.HaConfig.IsNull() {
+		var haConfig HaConfig
+		data.HaConfig.As(ctx, &haConfig, basetypes.ObjectAsOptions{})
+		if !haConfig.ClusterInit.ValueBool() {
 			if server, ok := server.Config()["server"].(string); ok {
-				data.HaConfig.Server = types.StringValue(server)
+				haConfig.Server = types.StringValue(server)
 			}
-			data.HaConfig.Token = types.StringValue(server.Token())
+			haConfig.Token = types.StringValue(server.Token())
 		}
+		data.HaConfig, _ = types.ObjectValueFrom(ctx, haConfig.AttributeTypes(), haConfig)
 	}
 
 	if serverConfig := server.Config(); serverConfig != nil {
@@ -570,14 +585,14 @@ func (k *k3sServerAuthValdiator) ValidateResource(ctx context.Context, req resou
 		return
 	}
 
-	if data.HaConfig != nil {
-		if !data.HaConfig.ClusterInit.ValueBool() && (data.HaConfig.Token.IsNull() || data.HaConfig.Server.IsNull()) {
-			resp.Diagnostics.AddError("Highly available", "When not in cluster-init, token and server must be passed")
-			return
-		}
-		if data.HaConfig.ClusterInit.ValueBool() && (!data.HaConfig.Token.IsNull() || !data.HaConfig.Server.IsNull()) {
-			resp.Diagnostics.AddError("Highly available", "When in cluster-init, token and server must not be passed")
-			return
-		}
-	}
+	// if data.HaConfig != nil {
+	// 	if !data.HaConfig.ClusterInit.ValueBool() && (data.HaConfig.Token.IsNull() || data.HaConfig.Server.IsNull()) {
+	// 		resp.Diagnostics.AddError("Highly available", "When not in cluster-init, token and server must be passed")
+	// 		return
+	// 	}
+	// 	if data.HaConfig.ClusterInit.ValueBool() && (!data.HaConfig.Token.IsNull() || !data.HaConfig.Server.IsNull()) {
+	// 		resp.Diagnostics.AddError("Highly available", "When in cluster-init, token and server must not be passed")
+	// 		return
+	// 	}
+	// }
 }
