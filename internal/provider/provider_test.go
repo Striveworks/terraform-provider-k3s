@@ -3,7 +3,6 @@ package provider_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -70,7 +69,7 @@ func LoadInputs(f string) (StandupInputs, error) {
 }
 
 func (s *StandupInputs) SshClient(t *testing.T, index uint) (ssh_client.SSHClient, error) {
-	return ssh_client.NewSSHClient(t.Context(), fmt.Sprintf("%s:%d", s.Nodes[index], 22), s.User, s.SshKey, "")
+	return ssh_client.NewSSHClient(t.Context(), s.Nodes[index], 22, s.User, s.SshKey, "")
 }
 
 func Render(raw string, args map[string]string) (string, error) {

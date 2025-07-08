@@ -115,10 +115,11 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
 }
 
 // RunUninstall implements K3sAgent.
-func (a *agent) RunUninstall(client ssh_client.SSHClient) error {
-	return client.RunStream([]string{
-		fmt.Sprintf("sudo bash %s/k3s-agent-uninstall.sh", a.binDir),
-	})
+func (a *agent) RunUninstall(client ssh_client.SSHClient, kubeconfig string) error {
+	if err := deleteNode(a.ctx, kubeconfig, client.HostName()); err != nil {
+		return err
+	}
+	return client.RunStream([]string{fmt.Sprintf("sudo bash %s/k3s-agent-uninstall.sh", a.binDir)})
 }
 
 func (a *agent) Journal(client ssh_client.SSHClient) (string, error) {

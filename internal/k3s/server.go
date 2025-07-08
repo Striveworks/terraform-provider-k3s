@@ -166,11 +166,13 @@ func (s *server) RunInstall(client ssh_client.SSHClient) (err error) {
 	return err
 }
 
-// RunUninstall implements K3sServer.
-func (s *server) RunUninstall(client ssh_client.SSHClient) error {
-	return client.RunStream([]string{
-		fmt.Sprintf("sudo bash %s/k3s-uninstall.sh", s.binDir),
-	})
+// RunUninstall implements K3sServer uninstall.
+func (s *server) RunUninstall(client ssh_client.SSHClient, kubeconfig string) error {
+
+	if err := deleteNode(s.ctx, kubeconfig, client.HostName()); err != nil {
+		return err
+	}
+	return client.RunStream([]string{fmt.Sprintf("sudo bash %s/k3s-uninstall.sh", s.binDir)})
 }
 
 func (s *server) Status(client ssh_client.SSHClient) (bool, error) {

@@ -48,6 +48,7 @@ resource "k3s_agent" "main" {
   host        = var.agent_hosts[count.index]
   user        = var.user
   private_key = var.private_key
+  kubeconfig  = k3s_server.main.kubeconfig
   server      = k3s_server.main.server
   token       = k3s_server.main.token
   config      = var.config
@@ -60,6 +61,7 @@ resource "k3s_agent" "main" {
 ### Required
 
 - `host` (String) Hostname of the target server
+- `kubeconfig` (String) KubeConfig for the cluster, needed so agent node can clean itself up
 - `server` (String) Hostname for k3s api server
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster
 - `user` (String) Username of the target server

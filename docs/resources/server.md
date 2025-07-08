@@ -71,8 +71,9 @@ resource "k3s_server" "join" {
   private_key = var.private_key
   config      = var.config
   highly_available = {
-    token  = k3s_server.init[0].token
-    server = k3s_server.init[0].server
+    token      = k3s_server.init[0].token
+    server     = k3s_server.init[0].server
+    kubeconfig = k3s_server.init[0].kubeconfig
   }
 }
 ```
@@ -109,6 +110,7 @@ resource "k3s_server" "join" {
 Optional:
 
 - `cluster_init` (Boolean) Node is the init node for the HA cluster
+- `kubeconfig` (String, Sensitive) KubeConfig for the cluster
 - `server` (String) Url of init node
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster
 

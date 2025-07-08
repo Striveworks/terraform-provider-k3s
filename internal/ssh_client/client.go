@@ -13,7 +13,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func NewSSHClient(ctx context.Context, addr string, user string, pem string, password string) (SSHClient, error) {
+func NewSSHClient(ctx context.Context, hostname string, port int, user string, pem string, password string) (SSHClient, error) {
 	var auth ssh.AuthMethod
 	if pem != "" {
 		tflog.MaskMessageStrings(ctx, pem)
@@ -28,10 +28,11 @@ func NewSSHClient(ctx context.Context, addr string, user string, pem string, pas
 		auth = ssh.Password(password)
 	}
 
-	tflog.Info(ctx, fmt.Sprintf("Using auth against %s", addr))
+	tflog.Info(ctx, fmt.Sprintf("Using auth against %s", hostname))
 	return &sshClient{
-		ctx:  ctx,
-		host: addr,
+		ctx:      ctx,
+		hostname: hostname,
+		port:     port,
 		config: ssh.ClientConfig{
 			User: user,
 			Auth: []ssh.AuthMethod{
@@ -54,6 +55,8 @@ type SSHClient interface {
 	WaitForReady() error
 	// Host name/address
 	Host() string
+	// Just the hostname
+	HostName() string
 	// Reads file from remote path
 	ReadFile(path string, missingOk bool, sudo bool) (string, error)
 	ReadOptionalFile(path string, sudo ...bool) (string, error)
@@ -62,13 +65,18 @@ type SSHClient interface {
 var _ SSHClient = &sshClient{}
 
 type sshClient struct {
-	config ssh.ClientConfig
-	host   string
-	ctx    context.Context
+	config   ssh.ClientConfig
+	hostname string
+	port     int
+	ctx      context.Context
+}
+
+func (s *sshClient) HostName() string {
+	return s.hostname
 }
 
 func (s *sshClient) Host() string {
-	return s.host
+	return fmt.Sprintf("%s:%d", s.hostname, s.port)
 }
 
 func (s *sshClient) Run(commands ...string) (results []string, err error) {
@@ -87,7 +95,7 @@ func (s *sshClient) Run(commands ...string) (results []string, err error) {
 }
 
 func (s *sshClient) runSingle(command string) (result string, err error) {
-	client, err := ssh.Dial("tcp", s.host, &s.config)
+	client, err := ssh.Dial("tcp", s.Host(), &s.config)
 	if err != nil {
 		return result, fmt.Errorf("create client failed %v", err)
 	}
@@ -120,7 +128,7 @@ func (s *sshClient) RunStream(commands []string) (err error) {
 }
 
 func (s *sshClient) streamSingle(command string) error {
-	client, err := ssh.Dial("tcp", s.host, &s.config)
+	client, err := ssh.Dial("tcp", s.Host(), &s.config)
 	if err != nil {
 		return fmt.Errorf("create client failed %v", err)
 	}
@@ -185,7 +193,7 @@ func (s *sshClient) streamSingle(command string) error {
 func (s *sshClient) WaitForReady() error {
 	maxRetries := 10
 	for i := range maxRetries {
-		client, err := ssh.Dial("tcp", s.host, &s.config)
+		client, err := ssh.Dial("tcp", s.Host(), &s.config)
 		if err == nil {
 			client.Close()
 			break

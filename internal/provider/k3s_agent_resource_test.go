@@ -124,11 +124,12 @@ func TestK3sAgentValidateResource(t *testing.T) {
 			ExpectNonEmptyPlan: true,
 			Config: providerConfig + `
 			resource "k3s_agent" "main" {
-				host	 = "192.168.1.2"
-				user	 = "ubuntu"
-				password = "abc123"
-				server	 = "192.168.1.1"
-				token 	 = "abc123"
+				host	   = "192.168.1.2"
+				user	   = "ubuntu"
+				password   = "abc123"
+				kubeconfig = "1asdsad"
+				server	   = "192.168.1.1"
+				token      = "abc123"
 			}`,
 		}},
 	})
@@ -145,6 +146,7 @@ func TestK3sAgentValidateResource(t *testing.T) {
 				private_key = "abc123"
 				server      = "192.168.1.1"
 				token 	    = "abc123"
+				kubeconfig  = "1asdsad"
 			}`,
 		}},
 	})
@@ -162,6 +164,7 @@ func TestK3sAgentValidateResource(t *testing.T) {
 				server      = "192.168.1.1"
 				token 	    = "abc123"
 				password    = "abc123"
+				kubeconfig  = "1asdsad"
 			}`,
 		}},
 	})

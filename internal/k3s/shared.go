@@ -8,6 +8,9 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"gopkg.in/yaml.v2"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
@@ -20,8 +23,9 @@ type K3sComponent interface {
 	// Runs the install script, should be ran after `RunPreReqs`.
 	RunInstall(ssh_client.SSHClient) error
 	// Runs the k3s uninstall script that is included.
-	// with the install
-	RunUninstall(ssh_client.SSHClient) error
+	// with the install. Additionally kubeconfig is needed to
+	// remove node from kubelet
+	RunUninstall(ssh_client.SSHClient, string) error
 	// Runs an update operation on the k3s node. If
 	// it's a simple config change, this will result
 	// in a systemd restart
@@ -120,4 +124,37 @@ func getConfig(client ssh_client.SSHClient) (map[any]any, error) {
 // Retrieve kubeconfig.
 func getRegistry(client ssh_client.SSHClient) (map[any]any, error) {
 	return readYaml(client, "/etc/rancher/k3s/registry.yaml", true)
+}
+
+func deleteNode(ctx context.Context, kubeconfig string, ipaddress string) error {
+	config, err := clientcmd.NewClientConfigFromBytes([]byte(kubeconfig))
+	if err != nil {
+		return err
+	}
+
+	// Create the rest.Config object
+	restConfig, err := config.ClientConfig()
+	if err != nil {
+		return err
+	}
+
+	// Create the Kubernetes clientset
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return err
+	}
+
+	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("error listing nodes: %w", err)
+	}
+
+	for _, node := range nodes.Items {
+		annotations := node.Annotations
+		if ip, ok := annotations["alpha.kubernetes.io/provided-node-ip"]; ok && ip == ipaddress {
+			return clientset.CoreV1().Nodes().Delete(ctx, node.Name, metav1.DeleteOptions{})
+		}
+	}
+
+	return fmt.Errorf("could not delete node: %v", ipaddress)
 }

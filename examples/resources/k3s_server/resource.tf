@@ -54,7 +54,8 @@ resource "k3s_server" "join" {
   private_key = var.private_key
   config      = var.config
   highly_available = {
-    token  = k3s_server.init[0].token
-    server = k3s_server.init[0].server
+    token      = k3s_server.init[0].token
+    server     = k3s_server.init[0].server
+    kubeconfig = k3s_server.init[0].kubeconfig
   }
 }

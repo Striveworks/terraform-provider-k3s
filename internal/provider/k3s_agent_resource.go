@@ -38,8 +38,9 @@ type AgentClientModel struct {
 	Port   types.Int32  `tfsdk:"port"`
 	BinDir types.String `tfsdk:"bin_dir"`
 	// Configs
-	K3sConfig types.String `tfsdk:"config"`
-	Token     types.String `tfsdk:"token"`
+	KubeConfig types.String `tfsdk:"kubeconfig"`
+	K3sConfig  types.String `tfsdk:"config"`
+	Token      types.String `tfsdk:"token"`
 	// Outputs
 	Id     types.String `tfsdk:"id"`
 	Active types.Bool   `tfsdk:"active"`
@@ -51,10 +52,10 @@ func (s *AgentClientModel) sshClient(ctx context.Context) (ssh_client.SSHClient,
 		port = int(s.Port.ValueInt32())
 	}
 
-	addr := fmt.Sprintf("%s:%d", s.Host.ValueString(), port)
 	return ssh_client.NewSSHClient(
 		ctx,
-		addr,
+		s.Host.ValueString(),
+		port,
 		s.User.ValueString(),
 		s.PrivateKey.ValueString(),
 		s.Password.ValueString(),
@@ -75,6 +76,91 @@ func (s *AgentClientModel) buildAgent(ctx context.Context, version *string) (k3s
 		s.Server.ValueString(),
 		s.BinDir.ValueString(),
 	), nil
+}
+
+// Schema implements resource.Resource.
+func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Creates a k3s agent resource. Only one of `password` or `private_key` can be passed. Requires a token and server address to a k3s_server resource",
+
+		Attributes: map[string]schema.Attribute{
+			// Inputs
+			"bin_dir": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "Value of a path used to put the k3s binary",
+				Default:             stringdefault.StaticString("/usr/local/bin"),
+				Computed:            true,
+			},
+			// Auth
+			"private_key": schema.StringAttribute{
+				Sensitive:           true,
+				Optional:            true,
+				MarkdownDescription: "Value of a privatekey used to auth",
+			},
+			"password": schema.StringAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Username of the target server",
+			},
+			"user": schema.StringAttribute{
+				Required:            true,
+				MarkdownDescription: "Username of the target server",
+			},
+			// Conn
+			"host": schema.StringAttribute{
+				Required:            true,
+				MarkdownDescription: "Hostname of the target server",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"port": schema.Int32Attribute{
+				Optional:            true,
+				Computed:            true,
+				Default:             int32default.StaticInt32(22),
+				MarkdownDescription: "Override default SSH port (22)",
+			},
+			// Config
+			"config": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "K3s server config",
+			},
+			"token": schema.StringAttribute{
+				Required:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Server token used for joining nodes to the cluster",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"server": schema.StringAttribute{
+				Required:            true,
+				MarkdownDescription: "Hostname for k3s api server",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"kubeconfig": schema.StringAttribute{
+				Required:            true,
+				MarkdownDescription: "KubeConfig for the cluster, needed so agent node can clean itself up",
+			},
+			// Outputs
+			"id": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "Id of the k3s server resource",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"active": schema.BoolAttribute{
+				Computed:            true,
+				MarkdownDescription: "The health of the server",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+		},
+	}
 }
 
 // Configure implements resource.ResourceWithConfigure.
@@ -181,7 +267,7 @@ func (k *K3sAgentResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 
 	agent := k3s.NewK3sAgentComponent(ctx, nil, nil, "", "", data.BinDir.ValueString())
-	if err := agent.RunUninstall(sshClient); err != nil {
+	if err := agent.RunUninstall(sshClient, data.KubeConfig.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Creating uninstall k3s-agent", err.Error())
 		return
 	}
@@ -231,87 +317,6 @@ func (k *K3sAgentResource) Read(ctx context.Context, req resource.ReadRequest, r
 	resp.Diagnostics.Append(req.State.Set(ctx, &data)...)
 }
 
-// Schema implements resource.Resource.
-func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{
-		MarkdownDescription: "Creates a k3s agent resource. Only one of `password` or `private_key` can be passed. Requires a token and server address to a k3s_server resource",
-
-		Attributes: map[string]schema.Attribute{
-			// Inputs
-			"bin_dir": schema.StringAttribute{
-				Optional:            true,
-				MarkdownDescription: "Value of a path used to put the k3s binary",
-				Default:             stringdefault.StaticString("/usr/local/bin"),
-				Computed:            true,
-			},
-			// Auth
-			"private_key": schema.StringAttribute{
-				Sensitive:           true,
-				Optional:            true,
-				MarkdownDescription: "Value of a privatekey used to auth",
-			},
-			"password": schema.StringAttribute{
-				Optional:            true,
-				Sensitive:           true,
-				MarkdownDescription: "Username of the target server",
-			},
-			"user": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Username of the target server",
-			},
-			// Conn
-			"host": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Hostname of the target server",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
-				},
-			},
-			"port": schema.Int32Attribute{
-				Optional:            true,
-				Computed:            true,
-				Default:             int32default.StaticInt32(22),
-				MarkdownDescription: "Override default SSH port (22)",
-			},
-			// Config
-			"config": schema.StringAttribute{
-				Optional:            true,
-				MarkdownDescription: "K3s server config",
-			},
-			"token": schema.StringAttribute{
-				Required:            true,
-				Sensitive:           true,
-				MarkdownDescription: "Server token used for joining nodes to the cluster",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
-				},
-			},
-			"server": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Hostname for k3s api server",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
-				},
-			},
-			// Outputs
-			"id": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "Id of the k3s server resource",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
-			"active": schema.BoolAttribute{
-				Computed:            true,
-				MarkdownDescription: "The health of the server",
-				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.UseStateForUnknown(),
-				},
-			},
-		},
-	}
-}
-
 // Update implements resource.Resource.
 func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data AgentClientModel
@@ -336,7 +341,7 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 		resp.Diagnostics.AddError("building k3s agent", err.Error())
 		return
 	}
-	if err := agent.RunUninstall(sshClient); err != nil {
+	if err := agent.Update(sshClient); err != nil {
 		resp.Diagnostics.AddError("Creating uninstall k3s", err.Error())
 		return
 	}
