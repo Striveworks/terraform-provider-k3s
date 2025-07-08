@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
@@ -53,7 +52,7 @@ func (a *agent) RunInstall(client ssh_client.SSHClient) error {
 	flags := []string{
 		"INSTALL_K3S_SKIP_START=true",
 		fmt.Sprintf("INSTALL_K3S_EXEC='agent --config %s/config.yaml'", CONFIG_DIR),
-		fmt.Sprintf("K3S_URL=%s", fmt.Sprintf("https://%s:6443", a.server)),
+		fmt.Sprintf("K3S_URL=%s", a.server),
 		fmt.Sprintf("K3S_TOKEN=%s", a.token),
 		fmt.Sprintf("BIN_DIR=%s", a.binDir),
 	}
@@ -202,12 +201,7 @@ func (a *agent) Resync(client ssh_client.SSHClient) (err error) {
 	}
 
 	if k3sUrl, ok := agentEnv["K3S_URL"]; ok {
-		u, err := url.Parse(k3sUrl)
-		if err != nil {
-			return err
-		}
-		a.server = u.Hostname()
-
+		a.server = k3sUrl
 	} else {
 		return fmt.Errorf("could not find server url")
 	}

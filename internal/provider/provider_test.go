@@ -37,6 +37,22 @@ type StandupInputs struct {
 	User   string   `json:"user"`
 }
 
+func (s StandupInputs) AgentTests() StandupInputs {
+	return StandupInputs{
+		s.Nodes[0:3],
+		s.SshKey,
+		s.User,
+	}
+}
+
+func (s StandupInputs) ServerTests() StandupInputs {
+	return StandupInputs{
+		s.Nodes[3:len(s.Nodes)],
+		s.SshKey,
+		s.User,
+	}
+}
+
 func LoadInputs(f string) (StandupInputs, error) {
 	var output StandupInputs
 	file, err := os.Open(f)

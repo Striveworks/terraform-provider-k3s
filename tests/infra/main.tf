@@ -64,10 +64,9 @@ module "infra" {
   flavor            = var.flavor
   availability_zone = var.availability_zone
   image_id          = var.image_id
-  # k3_server_test: Nodes 0-1
-  # k3_agent_test: Nodes 2-4
-  # k3_ha_server_test: Nodes 5-11
-  nodes = 12
+  # server: Nodes 0-4
+  # agent: Nodes 4-8
+  nodes = 8
 }
 
 // Outputs

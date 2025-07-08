@@ -64,7 +64,7 @@ resource "k3s_server" "init" {
 }
 
 resource "k3s_server" "join" {
-  count = length(var.hosts) - 1
+  count = length(var.hosts) > 0 ? length(var.hosts) - 1 : 0
 
   host        = var.hosts[count.index + 1]
   user        = var.user

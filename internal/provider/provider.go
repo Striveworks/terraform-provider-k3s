@@ -42,26 +42,11 @@ func (p *K3sProvider) Metadata(_ context.Context, _ provider.MetadataRequest, re
 	resp.Version = p.Version
 }
 
-func (p *K3sProvider) description() MarkdownDescription {
-	return `
-K3s Terraform Provider
-
-Use with your favorite cloud provider, openstack or baremetal. Makes no assumptions about the target backend.
-
-Example:
-
-!!!hcl
-provider k3s {
-	k3s_version = "v1.33.1+k3s1" // optional
-}
-!!!
-`
-}
-
 // Schema defines the provider-level schema for configuration data.
 func (p *K3sProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: p.description().ToMarkdown(),
+		MarkdownDescription: ("K3s Terraform Provider\n" +
+			"Use with your favorite cloud provider, openstack or baremetal. Makes no assumptions about the target backend."),
 		Attributes: map[string]schema.Attribute{
 			"k3s_version": schema.StringAttribute{
 				Optional:    true,

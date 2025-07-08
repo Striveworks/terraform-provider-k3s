@@ -4,26 +4,12 @@ page_title: "k3s Provider"
 description: |-
   K3s Terraform Provider
   Use with your favorite cloud provider, openstack or baremetal. Makes no assumptions about the target backend.
-  Example:
-  
-  provider k3s {
-  	k3s_version = "v1.33.1+k3s1" // optional
-  }
 ---
 
 # k3s Provider
 
 K3s Terraform Provider
-
 Use with your favorite cloud provider, openstack or baremetal. Makes no assumptions about the target backend.
-
-Example:
-
-```hcl
-provider k3s {
-	k3s_version = "v1.33.1+k3s1" // optional
-}
-```
 
 
 

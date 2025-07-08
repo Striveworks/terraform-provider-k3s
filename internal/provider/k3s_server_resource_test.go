@@ -21,7 +21,7 @@ func TestAccK3sServerResource(t *testing.T) {
 	if err != nil {
 		t.Errorf("%v", err.Error())
 	}
-
+	inputs = inputs.ServerTests()
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
@@ -74,7 +74,7 @@ func TestAccK3sServerImportResource(t *testing.T) {
 	if err != nil {
 		t.Errorf("%v", err.Error())
 	}
-
+	inputs = inputs.ServerTests()
 	client, err := inputs.SshClient(t, 1)
 	if err != nil {
 		t.Errorf("%v", err.Error())
@@ -91,7 +91,7 @@ func TestAccK3sServerImportResource(t *testing.T) {
 			{
 				ImportState:   true,
 				ConfigFile:    K3sServerStaticFile,
-				ResourceName:  "k3s_server.main",
+				ResourceName:  "k3s_server.main[0]",
 				ImportStateId: fmt.Sprintf("host=%s,user=%s,private_key=%s", inputs.Nodes[1], inputs.User, inputs.SshKey),
 				Config:        providerConfig,
 				ConfigVariables: map[string]config.Variable{
@@ -103,7 +103,6 @@ func TestAccK3sServerImportResource(t *testing.T) {
 			},
 			{
 				ConfigFile:         K3sServerStaticFile,
-				ResourceName:       "k3s_server.main",
 				Config:             providerConfig,
 				ExpectNonEmptyPlan: false,
 				PlanOnly:           true,
@@ -122,7 +121,7 @@ func TestAccK3sHAServerResource(t *testing.T) {
 	if err != nil {
 		t.Errorf("%v", err.Error())
 	}
-
+	inputs = inputs.ServerTests()
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{

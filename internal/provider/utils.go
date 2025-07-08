@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"maps"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -34,9 +35,7 @@ type NodeAuth struct {
 
 func mergeMaps(a, b map[interface{}]interface{}) map[interface{}]interface{} {
 	out := make(map[interface{}]interface{}, len(a))
-	for k, v := range a {
-		out[k] = v
-	}
+	maps.Copy(out, a)
 	for k, v := range b {
 		// If you use map[string]interface{}, ok is always false here.
 		// Because yaml.Unmarshal will give you map[interface{}]interface{}.

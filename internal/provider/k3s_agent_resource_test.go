@@ -22,7 +22,7 @@ func TestAccK3sAgentResource(t *testing.T) {
 	if err != nil {
 		t.Errorf("%v", err.Error())
 	}
-
+	inputs = inputs.AgentTests()
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
@@ -30,8 +30,8 @@ func TestAccK3sAgentResource(t *testing.T) {
 				ConfigFile: K3sAgentStaticFile,
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
-					"server_host": config.StringVariable(inputs.Nodes[2]),
-					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[3])),
+					"server_host": config.StringVariable(inputs.Nodes[0]),
+					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[1])),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 				},
@@ -50,7 +50,7 @@ func TestAccK3sAgentResource(t *testing.T) {
 			{
 				Config: providerConfig,
 				PreConfig: func() {
-					serverClient, err := inputs.SshClient(t, 2)
+					serverClient, err := inputs.SshClient(t, 0)
 					if err != nil {
 						t.Errorf("%v", err.Error())
 					}
@@ -59,12 +59,12 @@ func TestAccK3sAgentResource(t *testing.T) {
 						t.Errorf("%v", err.Error())
 					}
 
-					agentClient, err := inputs.SshClient(t, 4)
+					agentClient, err := inputs.SshClient(t, 2)
 					if err != nil {
 						t.Errorf("%v", err.Error())
 					}
 
-					if _, err = agentClient.Run(fmt.Sprintf("curl -sfL https://get.k3s.io | K3S_URL=https://%s:6443 K3S_TOKEN=%s sh -", inputs.Nodes[2], server.Token())); err != nil {
+					if _, err = agentClient.Run(fmt.Sprintf("curl -sfL https://get.k3s.io | K3S_URL=https://%s:6443 K3S_TOKEN=%s sh -", inputs.Nodes[0], server.Token())); err != nil {
 						t.Errorf("%v", err.Error())
 					}
 
@@ -72,11 +72,11 @@ func TestAccK3sAgentResource(t *testing.T) {
 				ImportState:        true,
 				ImportStatePersist: true,
 				ResourceName:       "k3s_agent.main[1]",
-				ImportStateId:      fmt.Sprintf("host=%s,user=%s,private_key=%s", inputs.Nodes[4], inputs.User, inputs.SshKey),
+				ImportStateId:      fmt.Sprintf("host=%s,user=%s,private_key=%s", inputs.Nodes[2], inputs.User, inputs.SshKey),
 				ConfigFile:         K3sAgentStaticFile,
 				ConfigVariables: map[string]config.Variable{
-					"server_host": config.StringVariable(inputs.Nodes[2]),
-					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[3]), config.StringVariable(inputs.Nodes[4])),
+					"server_host": config.StringVariable(inputs.Nodes[0]),
+					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[1]), config.StringVariable(inputs.Nodes[2])),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 					"secondary":   config.BoolVariable(true),
@@ -103,8 +103,8 @@ func TestAccK3sAgentResource(t *testing.T) {
 				PlanOnly:           true,
 				ConfigFile:         K3sAgentStaticFile,
 				ConfigVariables: map[string]config.Variable{
-					"server_host": config.StringVariable(inputs.Nodes[2]),
-					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[3]), config.StringVariable(inputs.Nodes[4])),
+					"server_host": config.StringVariable(inputs.Nodes[0]),
+					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[1]), config.StringVariable(inputs.Nodes[2])),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 					"secondary":   config.BoolVariable(true),

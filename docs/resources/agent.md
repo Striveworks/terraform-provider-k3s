@@ -48,7 +48,7 @@ resource "k3s_agent" "main" {
   host        = var.agent_hosts[count.index]
   user        = var.user
   private_key = var.private_key
-  server      = k3s_server.main.host
+  server      = k3s_server.main.server
   token       = k3s_server.main.token
   config      = var.config
 }
