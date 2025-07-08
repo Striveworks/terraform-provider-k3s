@@ -561,11 +561,7 @@ func (k *k3sServerAuthValdiator) Description(context.Context) string {
 
 // MarkdownDescription implements resource.ConfigValidator.
 func (k *k3sServerAuthValdiator) MarkdownDescription(context.Context) string {
-	var desc MarkdownDescription = `
-Allows either Password or Private Key, but not both
-`
-
-	return desc.ToMarkdown()
+	return "Allows either Password or Private Key, but not both"
 }
 
 // ValidateResource implements resource.ConfigValidator.
@@ -585,14 +581,16 @@ func (k *k3sServerAuthValdiator) ValidateResource(ctx context.Context, req resou
 		return
 	}
 
-	// if data.HaConfig != nil {
-	// 	if !data.HaConfig.ClusterInit.ValueBool() && (data.HaConfig.Token.IsNull() || data.HaConfig.Server.IsNull()) {
-	// 		resp.Diagnostics.AddError("Highly available", "When not in cluster-init, token and server must be passed")
-	// 		return
-	// 	}
-	// 	if data.HaConfig.ClusterInit.ValueBool() && (!data.HaConfig.Token.IsNull() || !data.HaConfig.Server.IsNull()) {
-	// 		resp.Diagnostics.AddError("Highly available", "When in cluster-init, token and server must not be passed")
-	// 		return
-	// 	}
-	// }
+	if !data.HaConfig.IsNull() {
+		var haConfig HaConfig
+		data.HaConfig.As(ctx, &haConfig, basetypes.ObjectAsOptions{})
+		if !haConfig.ClusterInit.ValueBool() && (haConfig.Token.IsNull() || haConfig.Server.IsNull()) {
+			resp.Diagnostics.AddError("Highly available", "When not in cluster-init, token and server must be passed")
+			return
+		}
+		if haConfig.ClusterInit.ValueBool() && (!haConfig.Token.IsNull() || !haConfig.Server.IsNull()) {
+			resp.Diagnostics.AddError("Highly available", "When in cluster-init, token and server must not be passed")
+			return
+		}
+	}
 }

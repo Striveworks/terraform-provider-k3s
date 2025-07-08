@@ -2,18 +2,11 @@ package provider
 
 import (
 	"maps"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"gopkg.in/yaml.v2"
 )
-
-type MarkdownDescription string
-
-func (s MarkdownDescription) ToMarkdown() string {
-	return strings.ReplaceAll(string(s), "!!!", "```")
-}
 
 func ParseYamlString(value basetypes.StringValue, mergeWith ...basetypes.StringValue) (config map[any]any, err error) {
 	all := []basetypes.StringValue{value}
