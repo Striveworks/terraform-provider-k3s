@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int32default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -174,6 +175,9 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 			"highly_available": schema.SingleNestedAttribute{
 				Optional:    true,
 				Description: "Run server node in highly available mode",
+				PlanModifiers: []planmodifier.Object{
+					objectplanmodifier.UseStateForUnknown(),
+				},
 				Attributes: map[string]schema.Attribute{
 					"cluster_init": schema.BoolAttribute{
 						Computed:            true,
@@ -581,7 +585,7 @@ func (k *k3sServerAuthValdiator) ValidateResource(ctx context.Context, req resou
 		return
 	}
 
-	if !data.HaConfig.IsNull() {
+	if !data.HaConfig.IsNull() && !data.HaConfig.IsUnknown() {
 		var haConfig HaConfig
 		data.HaConfig.As(ctx, &haConfig, basetypes.ObjectAsOptions{})
 		if !haConfig.ClusterInit.ValueBool() && (haConfig.Token.IsNull() || haConfig.Server.IsNull()) {
