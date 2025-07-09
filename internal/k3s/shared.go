@@ -127,20 +127,27 @@ func getRegistry(client ssh_client.SSHClient) (map[any]any, error) {
 }
 
 func deleteNode(ctx context.Context, kubeconfig string, ipaddress string) error {
+	if kubeconfig == "" {
+		tflog.Warn(ctx, fmt.Sprintf("Could not gracefully delete node for: %v", ipaddress))
+		return nil
+	}
 	config, err := clientcmd.NewClientConfigFromBytes([]byte(kubeconfig))
 	if err != nil {
+		tflog.Warn(ctx, fmt.Sprintf("Could not create kuberentes config: %v", err.Error()))
 		return err
 	}
 
 	// Create the rest.Config object
 	restConfig, err := config.ClientConfig()
 	if err != nil {
+		tflog.Warn(ctx, fmt.Sprintf("Could not create kuberentes rest client: %v", err.Error()))
 		return err
 	}
 
 	// Create the Kubernetes clientset
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
+		tflog.Warn(ctx, fmt.Sprintf("Could not create kuberentes api client: %v", err.Error()))
 		return err
 	}
 

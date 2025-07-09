@@ -2,6 +2,7 @@ package k3s
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -20,6 +21,10 @@ type K3sServer interface {
 	Config() map[any]any
 	// The k3s registry config
 	Registry() map[any]any
+	// Adds extra files to write to the node
+	AddFile(path string, content string)
+	// Get JWKS file
+	JWKS(ssh_client.SSHClient) (string, error)
 }
 
 var _ K3sServer = &server{}
@@ -32,6 +37,19 @@ type server struct {
 	version    *string
 	ctx        context.Context
 	binDir     string
+	// A map of target filepath : content
+	extraFiles map[string]string
+}
+
+// JWKS implements K3sServer.
+func (s *server) JWKS(client ssh_client.SSHClient) (string, error) {
+	// use sudo just in case kubeconfig doesn't have wide permissions
+	res, err := client.Run("sudo k3s kubectl get --raw /openid/v1/jwks")
+
+	if err != nil {
+		return "", err
+	}
+	return res[0], nil
 }
 
 // KubeConfig implements K3sServer.
@@ -57,25 +75,30 @@ func (s *server) Registry() map[any]any {
 // New k3s server component.
 func NewK3sServerComponent(ctx context.Context, config map[any]any, registry map[any]any, version *string, binDir string) K3sServer {
 	return &server{
-		ctx:      ctx,
-		config:   config,
-		registry: registry,
-		version:  version,
-		binDir:   binDir,
+		ctx:        ctx,
+		config:     config,
+		registry:   registry,
+		version:    version,
+		binDir:     binDir,
+		extraFiles: make(map[string]string),
 	}
 }
 
 // New k3s ha server component meant to join a server that has already been initialized.
 func NewK3sServerHAComponent(ctx context.Context, config map[any]any, registry map[any]any, version *string, token string, binDir string) K3sServer {
-
 	return &server{
-		ctx:      ctx,
-		config:   config,
-		registry: registry,
-		version:  version,
-		binDir:   binDir,
-		token:    token,
+		ctx:        ctx,
+		config:     config,
+		registry:   registry,
+		version:    version,
+		binDir:     binDir,
+		token:      token,
+		extraFiles: make(map[string]string),
 	}
+}
+
+func (s *server) AddFile(path string, content string) {
+	s.extraFiles[path] = content
 }
 
 func (s *server) dataDir() string {
@@ -100,6 +123,8 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient) error {
 		return err
 	}
 
+	extraFileCommands := s.syncExtraFiles()
+
 	tflog.Debug(s.ctx, "Reading install script")
 	installContents, err := ReadInstallScript()
 	if err != nil {
@@ -118,8 +143,11 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient) error {
 	// Write config file
 	commands = append(commands, cfgCommands...)
 
-	if len(regCommands) != 0 {
+	if len(regCommands) > 0 {
 		commands = append(commands, regCommands...)
+	}
+	if len(extraFileCommands) > 0 {
+		commands = append(commands, extraFileCommands...)
 	}
 
 	return client.RunStream(commands)
@@ -313,4 +341,15 @@ func (s *server) getServerEnv(client ssh_client.SSHClient) (map[string]string, e
 	}
 	tflog.Info(s.ctx, fmt.Sprintf("K3s service file %v", file))
 	return godotenv.Unmarshal(file)
+}
+
+func (s *server) syncExtraFiles() (commands []string) {
+	for k, v := range s.extraFiles {
+		commands = append(commands,
+			fmt.Sprintf("sudo mkdir -p $(sudo realpath $(dirname %s))", k),
+		)
+		commands = append(commands, WriteFileCommands(k, base64.StdEncoding.EncodeToString([]byte(v)))...)
+	}
+
+	return
 }

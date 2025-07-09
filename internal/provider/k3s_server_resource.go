@@ -64,6 +64,24 @@ func (m HaConfig) AttributeTypes() map[string]attr.Type {
 	}
 }
 
+type OidcConfig struct {
+	Audience     types.String `tfsdk:"audience"`
+	SigningPKCS8 types.String `tfsdk:"pkcs8"`
+	SigningKey   types.String `tfsdk:"signing_key"`
+	Issuer       types.String `tfsdk:"issuer"`
+	JWKSKeys     types.String `tfsdk:"jwks_keys"`
+}
+
+func (m OidcConfig) AttributeTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"audience":    types.StringType,
+		"pkcs8":       types.StringType,
+		"signing_key": types.StringType,
+		"issuer":      types.StringType,
+		"jwks_keys":   types.StringType,
+	}
+}
+
 // ServerClientModel describes the resource data model.
 type ServerClientModel struct {
 	NodeAuth
@@ -74,7 +92,10 @@ type ServerClientModel struct {
 	BinDir      types.String `tfsdk:"bin_dir"`
 	K3sConfig   types.String `tfsdk:"config"`
 	K3sRegistry types.String `tfsdk:"registry"`
-	HaConfig    types.Object `tfsdk:"highly_available"`
+	// Highly Available config
+	HaConfig types.Object `tfsdk:"highly_available"`
+	// OIDC Support
+	OidcConfig types.Object `tfsdk:"oidc"`
 
 	// Outputs
 	Id         types.String `tfsdk:"id"`
@@ -202,6 +223,40 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 					},
 				},
 			},
+			"oidc": schema.SingleNestedAttribute{
+				Optional:    true,
+				Description: "Support for including oidc provider in k3s",
+				Attributes: map[string]schema.Attribute{
+					"audience": schema.StringAttribute{
+						Required:            true,
+						Sensitive:           true,
+						MarkdownDescription: "OIDC Audience",
+					},
+					"pkcs8": schema.StringAttribute{
+						Required:            true,
+						Sensitive:           true,
+						MarkdownDescription: "Public signing key",
+					},
+					"signing_key": schema.StringAttribute{
+						Required:            true,
+						Sensitive:           true,
+						MarkdownDescription: "Private signing key",
+					},
+					"issuer": schema.StringAttribute{
+						Required:            true,
+						Sensitive:           true,
+						MarkdownDescription: "Issuer url",
+					},
+					"jwks_keys": schema.StringAttribute{
+						Computed:            true,
+						Sensitive:           true,
+						MarkdownDescription: "Issuer url",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -256,10 +311,28 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	config["embedded-registry"] = registry != nil
 	tflog.Debug(ctx, "K3s registry parsed")
 
+	// Oidc Support?
+	var oidc OidcConfig
+	if !data.OidcConfig.IsNull() {
+		tflog.Debug(ctx, "See OIDC support requested, adding to config")
+		resp.Diagnostics.Append(data.OidcConfig.As(ctx, &oidc, basetypes.ObjectAsOptions{})...)
+
+		config["kube-apiserver-arg"] = []string{
+			fmt.Sprintf("api-audiences=%s", oidc.Audience.ValueString()),
+			"service-account-key-file=/etc/rancher/k3s/tls/sa-signer-pkcs8.pub",
+			"service-account-key-file=/var/lib/rancher/k3s/server/tls/service.key",
+			"service-account-signing-key-file=/etc/rancher/k3s/tls/sa-signer.key",
+			fmt.Sprintf("service-account-issuer=%s", oidc.Issuer.ValueString()),
+			"service-account-issuer=k3s",
+		}
+	}
+
+	// Determine if we are running a HA server or
+	// we are running a single node server
 	var server k3s.K3sServer
 	if !data.HaConfig.IsNull() {
 		var haConfig HaConfig
-		data.HaConfig.As(ctx, &haConfig, basetypes.ObjectAsOptions{})
+		resp.Diagnostics.Append(data.HaConfig.As(ctx, &haConfig, basetypes.ObjectAsOptions{})...)
 		if haConfig.ClusterInit.ValueBool() {
 			tflog.Info(ctx, "Running in node HA init mode")
 			config["cluster-init"] = true
@@ -271,6 +344,11 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 		}
 	} else {
 		server = k3s.NewK3sServerComponent(ctx, config, registry, s.version, data.BinDir.ValueString())
+	}
+
+	if !data.OidcConfig.IsNull() {
+		server.AddFile("/etc/rancher/k3s/tls/sa-signer-pkcs8.pub", oidc.SigningPKCS8.ValueString())
+		server.AddFile("/etc/rancher/k3s/tls/sa-signer.key", oidc.SigningKey.ValueString())
 	}
 
 	tflog.Info(ctx, "Running k3s server preq steps")
@@ -315,6 +393,16 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	data.Token = types.StringValue(server.Token())
 	data.Id = types.StringValue(fmt.Sprintf("server,%s", data.Host))
 	data.Server = types.StringValue(fmt.Sprintf("https://%s:6443", data.Host.ValueString()))
+	// Set jwks output
+	if !data.OidcConfig.IsNull() {
+		jwks, err := server.JWKS(sshClient)
+		if err != nil {
+			resp.Diagnostics.AddError("Getting JWKS key", err.Error())
+			return
+		}
+		oidc.JWKSKeys = types.StringValue(jwks)
+		data.OidcConfig, _ = types.ObjectValueFrom(ctx, oidc.AttributeTypes(), oidc)
+	}
 
 	tflog.Info(ctx, "Created a k3s server resource")
 	// Save data into Terraform state

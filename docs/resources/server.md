@@ -91,6 +91,7 @@ resource "k3s_server" "join" {
 - `bin_dir` (String) Value of a path used to put the k3s binary
 - `config` (String) K3s server config
 - `highly_available` (Attributes) Run server node in highly available mode (see [below for nested schema](#nestedatt--highly_available))
+- `oidc` (Attributes) Support for including oidc provider in k3s (see [below for nested schema](#nestedatt--oidc))
 - `password` (String, Sensitive) Username of the target server
 - `port` (Number) Override default SSH port (22)
 - `private_key` (String, Sensitive) Private ssh key value to be used in place of a password
@@ -113,6 +114,21 @@ Optional:
 - `kubeconfig` (String, Sensitive) KubeConfig for the cluster
 - `server` (String) Url of init node
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster
+
+
+<a id="nestedatt--oidc"></a>
+### Nested Schema for `oidc`
+
+Required:
+
+- `audience` (String, Sensitive) OIDC Audience
+- `issuer` (String, Sensitive) Issuer url
+- `pkcs8` (String, Sensitive) Public signing key
+- `signing_key` (String, Sensitive) Private signing key
+
+Read-Only:
+
+- `jwks_keys` (String, Sensitive) Issuer url
 
 ## Import
 
