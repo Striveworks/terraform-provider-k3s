@@ -56,7 +56,7 @@ variable "image_id" {
 // Resources
 
 module "infra" {
-  source = "../../examples/modules/openstack-backend"
+  source = "./modules/openstack-backend"
 
   name              = "ha"
   user              = var.user

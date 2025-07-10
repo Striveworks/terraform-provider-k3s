@@ -6,6 +6,8 @@
 
 ## Description
 
+> **⚠️ This library is currently under active development. Features and APIs may change without notice. Use with caution in production environments.**
+
 Manage your [k3s](https://k3s.io) clusters with terraform. Much of this provider is a reimplementation of [k3s-ansible](https://github.com/k3s-io/k3s-ansible) into terraform
 resources so you can manage you k3s clusters together with your cloud provider of choice (or baremetal). This provider is cloud agnostic, but is tested on Openstack.
 
@@ -17,12 +19,11 @@ We only guarantee unit testing on the most recent bug minor versions of opentofu
 
 ```hcl
 terraform {
-  required_version = ">= 1.5"
+  required_version = "~> 1"
 
   required_providers {
     k3s = {
       source  = "striveworks/k3s"
-      version = ">= 0.0.4"
     }
   }
 }
