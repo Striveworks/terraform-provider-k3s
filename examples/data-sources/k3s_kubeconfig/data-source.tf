@@ -22,3 +22,12 @@ resource "k3s_server" "main" {
   private_key = var.private_key
   config      = var.config
 }
+
+data "k3s_kubeconfig" "kubeconfig" {
+  kubeconfig = k3s_server.main.kubeconfig
+  hostname   = "mylb-dns-name"
+}
+
+output "kubeconfig" {
+  value = data.k3s_kubeconfig.kubeconfig
+}

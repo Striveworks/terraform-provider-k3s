@@ -65,6 +65,11 @@ func (m HaConfig) AttributeTypes() map[string]attr.Type {
 	}
 }
 
+func (m *HaConfig) ToObject(ctx context.Context) basetypes.ObjectValue {
+	config, _ := types.ObjectValueFrom(ctx, m.AttributeTypes(), m)
+	return config
+}
+
 type OidcConfig struct {
 	Audience     types.String `tfsdk:"audience"`
 	SigningPKCS8 types.String `tfsdk:"pkcs8"`
@@ -423,6 +428,7 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	// Set outputs
 	tflog.Info(ctx, "Setting k3s server outputs")
 	data.Active = types.BoolValue(active)
+	data.HaConfig = builder.Ha.ToObject(ctx)
 	data.KubeConfig = types.StringValue(server.KubeConfig())
 	data.Token = types.StringValue(server.Token())
 	data.Id = types.StringValue(fmt.Sprintf("server,%s", data.Host.ValueString()))
@@ -576,6 +582,8 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 	tflog.Info(ctx, "Setting k3s server outputs")
 	state.Active = types.BoolValue(active)
 	state.K3sConfig = data.K3sConfig
+
+	state.HaConfig = data.HaConfig
 	if !data.OidcConfig.IsNull() {
 		jwks, err := server.JWKS(sshClient)
 		if err != nil {
@@ -585,6 +593,7 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 
 		state.OidcConfig = builder.Oidc.ToObject(ctx, jwks)
 	}
+	data.HaConfig = builder.Ha.ToObject(ctx)
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

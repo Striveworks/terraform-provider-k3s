@@ -26,7 +26,6 @@ Example on running a simple single node k3s cluster.
 ```terraform
 variable "host" {
   type = string
-
 }
 
 variable "user" {
