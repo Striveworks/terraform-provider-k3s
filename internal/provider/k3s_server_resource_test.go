@@ -2,6 +2,7 @@ package provider_test
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
 	"testing"
@@ -11,11 +12,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
+	"gopkg.in/yaml.v2"
 )
 
-var K3sServerStaticFile = config.StaticFile("../../examples/resources/k3s_server/resource.tf")
-
 func TestAccK3sServerResource(t *testing.T) {
+	var K3sServerStaticFile = config.StaticFile("../../examples/resources/k3s_server/examples/basic/resource.tf")
 
 	inputs, err := LoadInputs(os.Getenv("TEST_JSON_PATH"))
 	if err != nil {
@@ -35,7 +36,7 @@ func TestAccK3sServerResource(t *testing.T) {
 				},
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectSensitiveValue(
-						"k3s_server.main[0]",
+						"k3s_server.main",
 						tfjsonpath.New("token"),
 					),
 				},
@@ -49,9 +50,41 @@ func TestAccK3sServerResource(t *testing.T) {
 					"private_key": config.StringVariable(inputs.SshKey),
 					"config":      config.StringVariable("embedded-registry: true"),
 				},
-
 				ConfigPlanChecks: resource.ConfigPlanChecks{
-					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction("k3s_server.main[0]", plancheck.ResourceActionUpdate)},
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction("k3s_server.main", plancheck.ResourceActionUpdate)},
+				},
+			},
+			{
+				ConfigFile: K3sServerStaticFile,
+				Config:     providerConfig,
+				PreConfig: func() {
+					client, err := inputs.SshClient(t, 0)
+					if err != nil {
+						t.Errorf("Could not create ssh client: %v", err.Error())
+					}
+					res, err := client.Run("sudo cat /etc/rancher/k3s/config.yaml")
+					if err != nil {
+						t.Errorf("%v", err.Error())
+					}
+
+					contents := res[0]
+					var expected map[string]bool
+					if err := yaml.Unmarshal([]byte(res[0]), &expected); err != nil {
+						t.Errorf("%v", err.Error())
+					}
+
+					if !maps.Equal(map[string]bool{
+						"embedded-registry": true,
+					}, expected) {
+						t.Errorf("Expected config to be 'embedded-registry: true' but found %v", contents)
+					}
+				},
+				PlanOnly: true,
+				ConfigVariables: map[string]config.Variable{
+					"host":        config.StringVariable(inputs.Nodes[0]),
+					"user":        config.StringVariable(inputs.User),
+					"private_key": config.StringVariable(inputs.SshKey),
+					"config":      config.StringVariable("embedded-registry: true"),
 				},
 			},
 			{
@@ -70,6 +103,7 @@ func TestAccK3sServerResource(t *testing.T) {
 }
 
 func TestAccK3sServerImportResource(t *testing.T) {
+	var K3sServerStaticFile = config.StaticFile("../../examples/resources/k3s_server/examples/basic/resource.tf")
 	inputs, err := LoadInputs(os.Getenv("TEST_JSON_PATH"))
 	if err != nil {
 		t.Errorf("%v", err.Error())
@@ -91,7 +125,7 @@ func TestAccK3sServerImportResource(t *testing.T) {
 			{
 				ImportState:   true,
 				ConfigFile:    K3sServerStaticFile,
-				ResourceName:  "k3s_server.main[0]",
+				ResourceName:  "k3s_server.main",
 				ImportStateId: fmt.Sprintf("host=%s,user=%s,private_key=%s", inputs.Nodes[1], inputs.User, inputs.SshKey),
 				Config:        providerConfig,
 				ConfigVariables: map[string]config.Variable{
@@ -116,6 +150,7 @@ func TestAccK3sServerImportResource(t *testing.T) {
 }
 
 func TestAccK3sHAServerResource(t *testing.T) {
+	var K3sServerStaticFile = config.StaticFile("../../examples/resources/k3s_server/examples/ha/resource.tf")
 
 	inputs, err := LoadInputs(os.Getenv("TEST_JSON_PATH"))
 	if err != nil {
@@ -142,7 +177,7 @@ func TestAccK3sHAServerResource(t *testing.T) {
 				},
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectSensitiveValue(
-						"k3s_server.init[0]",
+						"k3s_server.init",
 						tfjsonpath.New("token"),
 					),
 				},
@@ -162,7 +197,7 @@ func TestAccK3sHAServerResource(t *testing.T) {
 				},
 
 				ConfigPlanChecks: resource.ConfigPlanChecks{
-					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction("k3s_server.init[0]", plancheck.ResourceActionUpdate)},
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction("k3s_server.init", plancheck.ResourceActionUpdate)},
 				},
 			},
 			{
@@ -243,5 +278,4 @@ func TestK3sServerValidateResource(t *testing.T) {
 			}`,
 		}},
 	})
-
 }
