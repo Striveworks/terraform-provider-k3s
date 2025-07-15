@@ -582,9 +582,11 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 	tflog.Info(ctx, "Setting k3s server outputs")
 	state.Active = types.BoolValue(active)
 	state.K3sConfig = data.K3sConfig
+	if builder.Ha != nil {
+		state.HaConfig = builder.Ha.ToObject(ctx)
+	}
 
-	state.HaConfig = data.HaConfig
-	if !data.OidcConfig.IsNull() {
+	if builder.Oidc != nil {
 		jwks, err := server.JWKS(sshClient)
 		if err != nil {
 			resp.Diagnostics.AddError("Getting JWKS key", err.Error())
@@ -593,7 +595,7 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 
 		state.OidcConfig = builder.Oidc.ToObject(ctx, jwks)
 	}
-	data.HaConfig = builder.Ha.ToObject(ctx)
+
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
