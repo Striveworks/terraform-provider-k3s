@@ -97,6 +97,7 @@ func (m OidcConfig) AttributeTypes() map[string]attr.Type {
 // ServerClientModel describes the resource data model.
 type ServerClientModel struct {
 	NodeAuth
+
 	// Connection
 	Host types.String `tfsdk:"host"`
 	Port types.Int32  `tfsdk:"port"`
@@ -109,11 +110,12 @@ type ServerClientModel struct {
 	// OIDC Support
 	OidcConfig types.Object `tfsdk:"oidc"`
 	// Outputs
-	Id         types.String `tfsdk:"id"`
-	Server     types.String `tfsdk:"server"`
-	KubeConfig types.String `tfsdk:"kubeconfig"`
-	Token      types.String `tfsdk:"token"`
-	Active     types.Bool   `tfsdk:"active"`
+	Id          types.String `tfsdk:"id"`
+	Server      types.String `tfsdk:"server"`
+	KubeConfig  types.String `tfsdk:"kubeconfig"`
+	Token       types.String `tfsdk:"token"`
+	Active      types.Bool   `tfsdk:"active"`
+	ClusterAuth types.Object `tfsdk:"cluster_auth"`
 }
 
 type ServerBuilder struct {
@@ -345,6 +347,43 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 					},
 				},
 			},
+			"cluster_auth": schema.SingleNestedAttribute{
+				Computed:    true,
+				Description: "Cluster auth objects",
+				Attributes: map[string]schema.Attribute{
+					"client_certificate_data": schema.StringAttribute{
+						Computed:            true,
+						Sensitive:           true,
+						MarkdownDescription: "Client user certificate, already base64 decoded",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
+					},
+					"certificate_authority_data": schema.StringAttribute{
+						Computed:            true,
+						Sensitive:           true,
+						MarkdownDescription: "Client CA, already base64 decoded",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
+					},
+					"client_key_data": schema.StringAttribute{
+						Computed:            true,
+						Sensitive:           true,
+						MarkdownDescription: "Client user key, already base64 decoded",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
+					},
+					"server": schema.StringAttribute{
+						Computed:            true,
+						MarkdownDescription: "Apiserver address",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -428,7 +467,9 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	// Set outputs
 	tflog.Info(ctx, "Setting k3s server outputs")
 	data.Active = types.BoolValue(active)
-	data.HaConfig = builder.Ha.ToObject(ctx)
+	if builder.Ha != nil {
+		data.HaConfig = builder.Ha.ToObject(ctx)
+	}
 	data.KubeConfig = types.StringValue(server.KubeConfig())
 	data.Token = types.StringValue(server.Token())
 	data.Id = types.StringValue(fmt.Sprintf("server,%s", data.Host.ValueString()))
@@ -444,6 +485,13 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 		data.OidcConfig = builder.Oidc.ToObject(ctx, jwks)
 	}
 
+	authData, err := NewClusterAuth(data.KubeConfig.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("malformed kubeconfig", err.Error())
+		return
+	}
+
+	data.ClusterAuth, _ = types.ObjectValueFrom(ctx, authData.AttributeTypes(), authData)
 	tflog.Info(ctx, "Created a k3s server resource")
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -472,6 +520,13 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 		data.HaConfig.As(ctx, &haConfig, basetypes.ObjectAsOptions{})
 		kubeconfig = haConfig.KubeConfig.ValueString()
 	}
+	authData, err := NewClusterAuth(data.KubeConfig.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("malformed kubeconfig", err.Error())
+		return
+	}
+
+	data.ClusterAuth, _ = types.ObjectValueFrom(ctx, authData.AttributeTypes(), authData)
 
 	server := k3s.NewK3sServerComponent(ctx, nil, nil, nil, data.BinDir.ValueString())
 	if err := server.RunUninstall(sshClient, kubeconfig); err != nil {
@@ -528,6 +583,14 @@ func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 		}
 		data.K3sConfig = types.StringValue(string(config))
 	}
+
+	authData, err := NewClusterAuth(data.KubeConfig.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("malformed kubeconfig", err.Error())
+		return
+	}
+
+	data.ClusterAuth, _ = types.ObjectValueFrom(ctx, authData.AttributeTypes(), authData)
 
 	if registry := server.Registry(); registry != nil {
 		contents, err := yaml.Marshal(registry)
@@ -595,6 +658,14 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 
 		state.OidcConfig = builder.Oidc.ToObject(ctx, jwks)
 	}
+
+	authData, err := NewClusterAuth(data.KubeConfig.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("malformed kubeconfig", err.Error())
+		return
+	}
+
+	data.ClusterAuth, _ = types.ObjectValueFrom(ctx, authData.AttributeTypes(), authData)
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
