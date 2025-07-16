@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-
 	"golang.org/x/crypto/ssh"
 )
 

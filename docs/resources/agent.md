@@ -60,35 +60,28 @@ resource "k3s_agent" "main" {
 
 ### Required
 
-- `host` (String) Hostname of the target server
+- `auth` (Attributes) Auth configuration for the node (see [below for nested schema](#nestedatt--auth))
 - `kubeconfig` (String) KubeConfig for the cluster, needed so agent node can clean itself up
 - `server` (String) Hostname for k3s api server
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster
-- `user` (String) Username of the target server
 
 ### Optional
 
 - `bin_dir` (String) Value of a path used to put the k3s binary
 - `config` (String) K3s server config
-- `password` (String, Sensitive) Username of the target server
-- `port` (Number) Override default SSH port (22)
-- `private_key` (String, Sensitive) Value of a privatekey used to auth
 
 ### Read-Only
 
 - `active` (Boolean) The health of the server
 - `id` (String) Id of the k3s server resource
 
-## Import
+<a id="nestedatt--auth"></a>
+### Nested Schema for `auth`
 
-Import is supported using the following syntax:
+Optional:
 
-The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
-
-```shell
-# Import with Password
-tofu import k3s_agent.main "host=192.168.10.1,user=ubuntu,password=$PASS"
-
-# Import with key
-tofu import k3s_agent.main "host=192.168.10.1,user=ubuntu,private_key=$SSH_KEY"
-```
+- `host` (String) Hostname of the target server
+- `password` (String, Sensitive) Username of the target server
+- `port` (Number) Override default SSH port (22)
+- `private_key` (String, Sensitive) Private ssh key value to be used in place of a password
+- `user` (String) Username of the target server

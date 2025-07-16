@@ -1,7 +1,6 @@
 package provider_test
 
 import (
-	"fmt"
 	"maps"
 	"os"
 	"regexp"
@@ -102,53 +101,6 @@ func TestAccK3sServerResource(t *testing.T) {
 	})
 }
 
-func TestAccK3sServerImportResource(t *testing.T) {
-	var K3sServerStaticFile = config.StaticFile("../../examples/resources/k3s_server/examples/basic/resource.tf")
-	inputs, err := LoadInputs(os.Getenv("TEST_JSON_PATH"))
-	if err != nil {
-		t.Errorf("%v", err.Error())
-	}
-	inputs = inputs.ServerTests()
-	client, err := inputs.SshClient(t, 1)
-	if err != nil {
-		t.Errorf("%v", err.Error())
-	}
-
-	if _, err := client.Run("curl -sfL https://get.k3s.io | sh -"); err != nil {
-		t.Errorf("%v", err.Error())
-	}
-
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		IsUnitTest:               true,
-		Steps: []resource.TestStep{
-			{
-				ImportState:   true,
-				ConfigFile:    K3sServerStaticFile,
-				ResourceName:  "k3s_server.main",
-				ImportStateId: fmt.Sprintf("host=%s,user=%s,private_key=%s", inputs.Nodes[1], inputs.User, inputs.SshKey),
-				Config:        providerConfig,
-				ConfigVariables: map[string]config.Variable{
-					"host":        config.StringVariable(inputs.Nodes[1]),
-					"user":        config.StringVariable(inputs.User),
-					"private_key": config.StringVariable(inputs.SshKey),
-				},
-				ImportStatePersist: true,
-			},
-			{
-				ConfigFile:         K3sServerStaticFile,
-				Config:             providerConfig,
-				ExpectNonEmptyPlan: false,
-				PlanOnly:           true,
-				ConfigVariables: map[string]config.Variable{
-					"host":        config.StringVariable(inputs.Nodes[1]),
-					"user":        config.StringVariable(inputs.User),
-					"private_key": config.StringVariable(inputs.SshKey),
-				},
-			}},
-	})
-}
-
 func TestAccK3sHAServerResource(t *testing.T) {
 	var K3sServerStaticFile = config.StaticFile("../../examples/resources/k3s_server/examples/ha/resource.tf")
 
@@ -229,48 +181,57 @@ func TestK3sServerValidateResource(t *testing.T) {
 			ExpectNonEmptyPlan: true,
 			Config: providerConfig + `
 			resource "k3s_server" "main" {
-				host		= "192.168.1.1"
-				user		= "ubuntu"
-				password	= "abc123"
+				auth = {
+				   host		= "192.168.1.1"
+				   user		= "ubuntu"
+				   password	= "abc123"
+		        }
 			}`,
 		}, {
 			PlanOnly:           true,
 			ExpectNonEmptyPlan: true,
 			Config: providerConfig + `
 			resource "k3s_server" "main" {
-				host		= "192.168.1.1"
-				user		= "ubuntu"
-				private_key	= "somelongkey"
-			}`,
-		}, {
-			PlanOnly:    true,
-			ExpectError: regexp.MustCompile(`(.*)Both password and private key were passed, only pass one(.*)`),
-			Config: providerConfig + `
-			resource "k3s_server" "main" {
-				host        = "192.168.1.1"
-				user        = "ubuntu"
-				private_key = "somelongkey"
-				password    = "abc123"
-			}`,
-		}, {
-			PlanOnly:    true,
-			ExpectError: regexp.MustCompile(`(.*)When not in cluster-init, token and server must be passed(.*)`),
-			Config: providerConfig + `
-			resource "k3s_server" "main" {
-				host        = "192.168.1.1"
-				user        = "ubuntu"
-				private_key = "somelongkey"
-				highly_available = {
+			    auth = {
+					host		= "192.168.1.1"
+					user		= "ubuntu"
+					private_key	= "somelongkey"
 				}
 			}`,
 		}, {
 			PlanOnly:    true,
-			ExpectError: regexp.MustCompile(`(.*)When in cluster-init, token and server must not be passed(.*)`),
+			ExpectError: regexp.MustCompile(`(.*)both password and private key were passed, only pass one(.*)`),
 			Config: providerConfig + `
 			resource "k3s_server" "main" {
-				host        = "192.168.1.1"
-				user        = "ubuntu"
-				private_key = "somelongkey"
+				auth = {
+					host        = "192.168.1.1"
+					user        = "ubuntu"
+					private_key = "somelongkey"
+					password    = "abc123"
+				}
+			}`,
+		}, {
+			PlanOnly:    true,
+			ExpectError: regexp.MustCompile(`(.*)when not in cluster-init, token and server must be passed(.*)`),
+			Config: providerConfig + `
+			resource "k3s_server" "main" {
+				auth = {
+					host        = "192.168.1.1"
+					user        = "ubuntu"
+					private_key = "somelongkey"
+		        }
+				highly_available = {}
+			}`,
+		}, {
+			PlanOnly:    true,
+			ExpectError: regexp.MustCompile(`(.*)when in cluster-init, token and server must not be passed(.*)`),
+			Config: providerConfig + `
+			resource "k3s_server" "main" {
+				auth = {
+					host        = "192.168.1.1"
+					user        = "ubuntu"
+					private_key = "somelongkey"
+				}
 				highly_available = {
 					cluster_init = true
 					token = "absdad"

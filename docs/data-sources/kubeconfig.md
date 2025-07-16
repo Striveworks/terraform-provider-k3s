@@ -53,15 +53,36 @@ output "kubeconfig" {
 
 ### Required
 
-- `kubeconfig` (String, Sensitive) Output of the kubeconfig from a k3s_server resource
+- `auth` (Attributes) Auth configuration for the node (see [below for nested schema](#nestedatt--auth))
 
 ### Optional
 
+- `allow_empty` (Boolean) If this is true, it will allow a missing kubeconfig and set null to all outputs
 - `hostname` (String) Override the api server's hostname
 
 ### Read-Only
 
+- `cluster_auth` (Attributes) Cluster auth objects (see [below for nested schema](#nestedatt--cluster_auth))
+- `kubeconfig` (String, Sensitive) Output of the kubeconfig from a k3s_server resource
+
+<a id="nestedatt--auth"></a>
+### Nested Schema for `auth`
+
+Optional:
+
+- `host` (String) Hostname of the target server
+- `password` (String, Sensitive) Username of the target server
+- `port` (Number) Override default SSH port (22)
+- `private_key` (String, Sensitive) Private ssh key value to be used in place of a password
+- `user` (String) Username of the target server
+
+
+<a id="nestedatt--cluster_auth"></a>
+### Nested Schema for `cluster_auth`
+
+Read-Only:
+
 - `certificate_authority_data` (String, Sensitive) Client CA, already base64 decoded
 - `client_certificate_data` (String, Sensitive) Client user certificate, already base64 decoded
 - `client_key_data` (String, Sensitive) Client user key, already base64 decoded
-- `server` (String) Api server's address
+- `server` (String) Apiserver address

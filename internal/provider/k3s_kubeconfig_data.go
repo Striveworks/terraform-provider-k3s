@@ -6,6 +6,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"striveworks.us/terraform-provider-k3s/internal/k3s"
 )
 
 type K3sKubeConfigData struct{}
@@ -15,9 +17,11 @@ func NewK3sKubeConfigData() datasource.DataSource {
 }
 
 type K3sKubeConfig struct {
-	ClusterAuth
-	KubeConfig types.String `tfsdk:"kubeconfig"`
-	Hostname   types.String `tfsdk:"hostname"`
+	Auth        types.Object `tfsdk:"auth"`
+	ClusterAuth types.Object `tfsdk:"cluster_auth"`
+	KubeConfig  types.String `tfsdk:"kubeconfig"`
+	Hostname    types.String `tfsdk:"hostname"`
+	AllowEmpty  types.Bool   `tfsdk:"allow_empty"`
 }
 
 // Metadata implements datasource.DataSource.
@@ -32,57 +36,66 @@ func (k *K3sKubeConfigData) Read(ctx context.Context, req datasource.ReadRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	authData, err := NewClusterAuth(data.KubeConfig.ValueString())
+	auth := NewNodeAuth(ctx, data.Auth)
+	sshClient, err := auth.SshClient(ctx)
 	if err != nil {
-		resp.Diagnostics.AddError("malformed kubeconfig", err.Error())
+		resp.Diagnostics.AddError("Creating ssh config", err.Error())
+		return
+	}
+
+	server := k3s.NewK3sServerComponent(ctx, nil, nil, nil, "")
+	if err := server.Resync(sshClient); err != nil {
+		if data.AllowEmpty.ValueBool() {
+			tflog.Info(ctx, "Allowing empty kubeconfig, returning nulls")
+			// Set nulls safely
+			data.Auth = types.ObjectNull(NodeAuth{}.AttributeTypes())
+			data.ClusterAuth = types.ObjectNull(ClusterAuth{}.AttributeTypes())
+			data.KubeConfig = types.StringNull()
+
+			resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+			return
+		}
+
+		resp.Diagnostics.AddError("Error resyncing server", err.Error())
+		return
+	}
+	clusterAuth, err := BuildClusterAuth(server.KubeConfig())
+	if err != nil {
+		resp.Diagnostics.AddError("Parsing kubeconfig", err.Error())
 		return
 	}
 
 	// Set hostname
 	if !data.Hostname.IsNull() {
-		authData.UpdateHost(data.Hostname.ValueString())
+		clusterAuth.UpdateHost(data.Hostname.ValueString())
 	}
 
-	data.ClusterAuth = authData
-	data.KubeConfig = types.StringValue(authData.KubeConfig())
+	data.Auth = auth.ToObject(ctx)
+	data.ClusterAuth = clusterAuth.ToObject(ctx)
+	data.KubeConfig = types.StringValue(clusterAuth.KubeConfig())
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 // Schema implements datasource.DataSource.
 func (k *K3sKubeConfigData) Schema(_ context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		DeprecationMessage: "Use k3s_server.cluster_auth",
 		MarkdownDescription: ("A utility for reading and manipulating kubeconfig. Common use case would be to nicely extract " +
 			"the auth credentials or overridding the server url for a load balancer url or dns name."),
 		Attributes: map[string]schema.Attribute{
+			"auth":         NodeAuth{}.Schema(),
+			"cluster_auth": ClusterAuth{}.Schema(),
+			"allow_empty": schema.BoolAttribute{
+				Optional:            true,
+				MarkdownDescription: "If this is true, it will allow a missing kubeconfig and set null to all outputs",
+			},
 			"kubeconfig": schema.StringAttribute{
-				Required:            true,
+				Computed:            true,
 				Sensitive:           true,
 				MarkdownDescription: "Output of the kubeconfig from a k3s_server resource",
 			},
 			"hostname": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "Override the api server's hostname",
-			},
-			"server": schema.StringAttribute{
-				Computed:            true,
-				MarkdownDescription: "Api server's address",
-			},
-			"client_certificate_data": schema.StringAttribute{
-				Computed:            true,
-				Sensitive:           true,
-				MarkdownDescription: "Client user certificate, already base64 decoded",
-			},
-			"certificate_authority_data": schema.StringAttribute{
-				Computed:            true,
-				Sensitive:           true,
-				MarkdownDescription: "Client CA, already base64 decoded",
-			},
-			"client_key_data": schema.StringAttribute{
-				Computed:            true,
-				Sensitive:           true,
-				MarkdownDescription: "Client user key, already base64 decoded",
 			},
 		},
 	}

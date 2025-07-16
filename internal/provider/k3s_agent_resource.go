@@ -3,14 +3,10 @@ package provider
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int32default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -23,7 +19,6 @@ import (
 
 var _ resource.ResourceWithConfigure = &K3sAgentResource{}
 var _ resource.ResourceWithConfigValidators = &K3sAgentResource{}
-var _ resource.ResourceWithImportState = &K3sAgentResource{}
 
 type K3sAgentResource struct {
 	version *string
@@ -31,11 +26,9 @@ type K3sAgentResource struct {
 
 // AgentClientModel describes the resource data model.
 type AgentClientModel struct {
-	NodeAuth
+	Auth types.Object `tfsdk:"auth"`
 	// Connection
-	Host   types.String `tfsdk:"host"`
 	Server types.String `tfsdk:"server"`
-	Port   types.Int32  `tfsdk:"port"`
 	BinDir types.String `tfsdk:"bin_dir"`
 	// Configs
 	KubeConfig types.String `tfsdk:"kubeconfig"`
@@ -47,18 +40,20 @@ type AgentClientModel struct {
 }
 
 func (s *AgentClientModel) sshClient(ctx context.Context) (ssh_client.SSHClient, error) {
+	auth := NewNodeAuth(ctx, s.Auth)
+
 	port := 22
-	if int(s.Port.ValueInt32()) != 0 {
-		port = int(s.Port.ValueInt32())
+	if int(auth.Port.ValueInt32()) != 0 {
+		port = int(auth.Port.ValueInt32())
 	}
 
 	return ssh_client.NewSSHClient(
 		ctx,
-		s.Host.ValueString(),
+		auth.Host.ValueString(),
 		port,
-		s.User.ValueString(),
-		s.PrivateKey.ValueString(),
-		s.Password.ValueString(),
+		auth.User.ValueString(),
+		auth.PrivateKey.ValueString(),
+		auth.Password.ValueString(),
 	)
 }
 
@@ -84,6 +79,7 @@ func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaReques
 		MarkdownDescription: "Creates a k3s agent resource. Only one of `password` or `private_key` can be passed. Requires a token and server address to a k3s_server resource",
 
 		Attributes: map[string]schema.Attribute{
+
 			// Inputs
 			"bin_dir": schema.StringAttribute{
 				Optional:            true,
@@ -92,34 +88,7 @@ func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaReques
 				Computed:            true,
 			},
 			// Auth
-			"private_key": schema.StringAttribute{
-				Sensitive:           true,
-				Optional:            true,
-				MarkdownDescription: "Value of a privatekey used to auth",
-			},
-			"password": schema.StringAttribute{
-				Optional:            true,
-				Sensitive:           true,
-				MarkdownDescription: "Username of the target server",
-			},
-			"user": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Username of the target server",
-			},
-			// Conn
-			"host": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Hostname of the target server",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
-				},
-			},
-			"port": schema.Int32Attribute{
-				Optional:            true,
-				Computed:            true,
-				Default:             int32default.StaticInt32(22),
-				MarkdownDescription: "Override default SSH port (22)",
-			},
+			"auth": NodeAuth{}.Schema(),
 			// Config
 			"config": schema.StringAttribute{
 				Optional:            true,
@@ -238,9 +207,10 @@ func (k *K3sAgentResource) Create(ctx context.Context, req resource.CreateReques
 		}
 		tflog.Trace(ctx, logs)
 	}
+	auth := NewNodeAuth(ctx, data.Auth)
 
 	data.Active = types.BoolValue(active)
-	data.Id = types.StringValue(fmt.Sprintf("agent,%s", data.Host))
+	data.Id = types.StringValue(fmt.Sprintf("agent,%s", auth.Host.ValueString()))
 
 	tflog.Info(ctx, "created a k3s agent resource")
 
@@ -354,88 +324,6 @@ func (k *K3sAgentResource) ConfigValidators(ctx context.Context) []resource.Conf
 	}
 }
 
-func (k *K3sAgentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	data := AgentClientModel{
-		BinDir: types.StringValue("/usr/local/bin"),
-		Port:   types.Int32Value(22),
-	}
-
-	for field := range strings.SplitSeq(req.ID, ",") {
-		kv := strings.Split(field, "=")
-		if len(kv) != 2 {
-			resp.Diagnostics.AddError("failed importing", "Importing k3s_server requires comma separated field=value")
-		}
-		if kv[0] == "host" {
-			data.Host = types.StringValue(kv[1])
-		}
-		if kv[0] == "user" {
-			data.User = types.StringValue(kv[1])
-		}
-		if kv[0] == "private_key" {
-			tflog.MaskMessageStrings(ctx, kv[1])
-			tflog.Info(ctx, "Importing k3s agent with private key")
-			data.PrivateKey = types.StringValue(kv[1])
-		}
-		if kv[0] == "port" {
-			val, err := strconv.Atoi(kv[1])
-			if err != nil {
-				resp.Diagnostics.AddError("failed importing", "Could not parse port")
-				return
-			}
-			data.Port = types.Int32Value(int32(val))
-		}
-		if kv[0] == "password" {
-			tflog.MaskMessageStrings(ctx, kv[1])
-			data.Password = types.StringValue(kv[1])
-		}
-		if kv[0] == "binDir" {
-			data.BinDir = types.StringValue(kv[1])
-		}
-	}
-
-	sshClient, err := data.sshClient(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError("failed importing: Creating ssh config", err.Error())
-		return
-	}
-
-	tflog.Info(ctx, "Resyncing k3s_agent")
-	agent, err := data.buildAgent(ctx, k.version)
-	if err != nil {
-		resp.Diagnostics.AddError("building k3s agent", err.Error())
-		return
-	}
-
-	if err := agent.Resync(sshClient); err != nil {
-		resp.Diagnostics.AddError("failed importing: resyncing k3s_agent", err.Error())
-		return
-	}
-
-	tflog.Info(ctx, "Checking k3s agent systemd status")
-	active, err := agent.Status(sshClient)
-	if err != nil {
-		resp.Diagnostics.AddError("failed importing: Error retrieving agent status", err.Error())
-		return
-	}
-
-	data.Server = types.StringValue(agent.Server())
-	data.Token = types.StringValue(agent.Token())
-	data.Active = types.BoolValue(active)
-
-	if agentConfig := agent.Config(); agentConfig != nil {
-		config, err := yaml.Marshal(agentConfig)
-		if err != nil {
-			resp.Diagnostics.AddError("failed importing: Error agent config", err.Error())
-			return
-		}
-		data.K3sConfig = types.StringValue(string(config))
-	}
-
-	tflog.Info(ctx, "Imported a k3s agent resource")
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), types.StringValue(fmt.Sprintf("agent,%s", data.Host)))...)
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-}
-
 func NewK3sAgentResource() resource.Resource {
 	return &K3sAgentResource{}
 }
@@ -463,13 +351,8 @@ func (k *k3sAgentAuthValidator) ValidateResource(ctx context.Context, req resour
 	// Read Terraform state data into the model
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 
-	if data.PrivateKey.IsNull() && data.Password.IsNull() {
-		resp.Diagnostics.AddError("No auth", "Neither password nor private key was passed")
-		return
-	}
-
-	if !data.PrivateKey.IsNull() && !data.Password.IsNull() {
-		resp.Diagnostics.AddError("Conflicting auth", "Both password and private key were passed, only pass one")
+	if err := NewNodeAuth(ctx, data.Auth).Validate(); err != nil {
+		resp.Diagnostics.AddError("Auth error", err.Error())
 		return
 	}
 }

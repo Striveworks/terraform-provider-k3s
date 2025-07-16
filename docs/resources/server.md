@@ -165,8 +165,7 @@ output "jwks" {
 
 ### Required
 
-- `host` (String) Hostname of the target server
-- `user` (String) Username of the target server
+- `auth` (Attributes) Auth configuration for the node (see [below for nested schema](#nestedatt--auth))
 
 ### Optional
 
@@ -174,9 +173,6 @@ output "jwks" {
 - `config` (String) K3s server config
 - `highly_available` (Attributes) Run server node in highly available mode (see [below for nested schema](#nestedatt--highly_available))
 - `oidc` (Attributes) Support for including oidc provider in k3s (see [below for nested schema](#nestedatt--oidc))
-- `password` (String, Sensitive) Username of the target server
-- `port` (Number) Override default SSH port (22)
-- `private_key` (String, Sensitive) Private ssh key value to be used in place of a password
 - `registry` (String) K3s server registry
 
 ### Read-Only
@@ -187,6 +183,18 @@ output "jwks" {
 - `kubeconfig` (String, Sensitive) KubeConfig for the cluster
 - `server` (String) Server url  used for joining nodes to the cluster.
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster
+
+<a id="nestedatt--auth"></a>
+### Nested Schema for `auth`
+
+Optional:
+
+- `host` (String) Hostname of the target server
+- `password` (String, Sensitive) Username of the target server
+- `port` (Number) Override default SSH port (22)
+- `private_key` (String, Sensitive) Private ssh key value to be used in place of a password
+- `user` (String) Username of the target server
+
 
 <a id="nestedatt--highly_available"></a>
 ### Nested Schema for `highly_available`
@@ -223,23 +231,3 @@ Read-Only:
 - `client_certificate_data` (String, Sensitive) Client user certificate, already base64 decoded
 - `client_key_data` (String, Sensitive) Client user key, already base64 decoded
 - `server` (String) Apiserver address
-
-## Import
-
-Import is supported using the following syntax:
-
-The [` + "`" + `terraform import` + "`" + ` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
-
-```shell
-# Import with Password
-tofu import k3s_server.main "host=192.168.10.1,user=ubuntu,password=$PASS"
-
-# Import with key
-tofu import k3s_server.main "host=192.168.10.1,user=ubuntu,private_key=$SSH_KEY"
-
-# Ha Init Node
-tofu import k3s_server.main "host=192.168.10.1,user=ubuntu,private_key=$SSH_KEY,cluster_init=true"
-
-# Ha Join Node
-tofu import k3s_server.main "host=192.168.10.1,user=ubuntu,private_key=$SSH_KEY,cluster_init=false"
-```
