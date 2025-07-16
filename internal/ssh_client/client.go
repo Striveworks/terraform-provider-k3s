@@ -6,13 +6,14 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"golang.org/x/crypto/ssh"
 )
 
-func NewSSHClient(ctx context.Context, hostname string, port int, user string, pem string, password string) (SSHClient, error) {
+func NewSSHClient(ctx context.Context, hostnameOrIpAddress string, port int, user string, pem string, password string) (SSHClient, error) {
 	var auth ssh.AuthMethod
 	if pem != "" {
 		tflog.MaskMessageStrings(ctx, pem)
@@ -27,11 +28,11 @@ func NewSSHClient(ctx context.Context, hostname string, port int, user string, p
 		auth = ssh.Password(password)
 	}
 
-	tflog.Info(ctx, fmt.Sprintf("Using auth against %s", hostname))
+	tflog.Info(ctx, fmt.Sprintf("Using auth against %s", hostnameOrIpAddress))
 	return &sshClient{
-		ctx:      ctx,
-		hostname: hostname,
-		port:     port,
+		ctx:                 ctx,
+		hostnameOrIpAddress: hostnameOrIpAddress,
+		port:                port,
 		config: ssh.ClientConfig{
 			User: user,
 			Auth: []ssh.AuthMethod{
@@ -54,8 +55,10 @@ type SSHClient interface {
 	WaitForReady() error
 	// Host name/address
 	Host() string
-	// Just the hostname
-	HostName() string
+	// Gets the hostname, which is passed in via constructor.
+	HostnameOrIpAddress() string
+	// Gets the hostname by running `hostname` on the remote
+	Hostname() (string, error)
 	// Reads file from remote path
 	ReadFile(path string, missingOk bool, sudo bool) (string, error)
 	ReadOptionalFile(path string, sudo ...bool) (string, error)
@@ -64,18 +67,28 @@ type SSHClient interface {
 var _ SSHClient = &sshClient{}
 
 type sshClient struct {
-	config   ssh.ClientConfig
-	hostname string
-	port     int
-	ctx      context.Context
+	config              ssh.ClientConfig
+	hostnameOrIpAddress string
+	port                int
+	ctx                 context.Context
 }
 
-func (s *sshClient) HostName() string {
-	return s.hostname
+func (s *sshClient) HostnameOrIpAddress() string {
+	return s.hostnameOrIpAddress
+}
+
+func (s *sshClient) Hostname() (hostname string, err error) {
+	hostname, err = s.runSingle("sudo hostname")
+	if err != nil {
+		return
+	}
+
+	hostname = regexp.MustCompile(`\s+`).ReplaceAllString(hostname, "")
+	return
 }
 
 func (s *sshClient) Host() string {
-	return fmt.Sprintf("%s:%d", s.hostname, s.port)
+	return fmt.Sprintf("%s:%d", s.hostnameOrIpAddress, s.port)
 }
 
 func (s *sshClient) Run(commands ...string) (results []string, err error) {

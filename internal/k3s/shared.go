@@ -126,9 +126,9 @@ func getRegistry(client ssh_client.SSHClient) (map[any]any, error) {
 	return readYaml(client, "/etc/rancher/k3s/registry.yaml", true)
 }
 
-func deleteNode(ctx context.Context, kubeconfig string, ipaddress string) error {
+func deleteNode(ctx context.Context, kubeconfig string, hostname string) error {
 	if kubeconfig == "" {
-		tflog.Warn(ctx, fmt.Sprintf("Could not gracefully delete node for: %v", ipaddress))
+		tflog.Warn(ctx, fmt.Sprintf("Could not gracefully delete node for: %v", hostname))
 		return nil
 	}
 	config, err := clientcmd.NewClientConfigFromBytes([]byte(kubeconfig))
@@ -151,17 +151,6 @@ func deleteNode(ctx context.Context, kubeconfig string, ipaddress string) error 
 		return err
 	}
 
-	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("error listing nodes: %w", err)
-	}
+	return clientset.CoreV1().Nodes().Delete(ctx, hostname, metav1.DeleteOptions{})
 
-	for _, node := range nodes.Items {
-		annotations := node.Annotations
-		if ip, ok := annotations["alpha.kubernetes.io/provided-node-ip"]; ok && ip == ipaddress {
-			return clientset.CoreV1().Nodes().Delete(ctx, node.Name, metav1.DeleteOptions{})
-		}
-	}
-
-	return fmt.Errorf("could not delete node: %v", ipaddress)
 }

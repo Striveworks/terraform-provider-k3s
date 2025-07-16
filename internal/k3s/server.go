@@ -198,8 +198,11 @@ func (s *server) RunInstall(client ssh_client.SSHClient) (err error) {
 
 // RunUninstall implements K3sServer uninstall.
 func (s *server) RunUninstall(client ssh_client.SSHClient, kubeconfig string, allowErr ...bool) error {
-
-	if err := deleteNode(s.ctx, kubeconfig, client.HostName()); err != nil {
+	hostname, err := client.Hostname()
+	if err != nil {
+		return err
+	}
+	if err := deleteNode(s.ctx, kubeconfig, hostname); err != nil {
 		allowErr := len(allowErr) > 0 && allowErr[0]
 		if !allowErr {
 			return err

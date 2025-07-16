@@ -126,7 +126,11 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
 
 // RunUninstall implements K3sAgent.
 func (a *agent) RunUninstall(client ssh_client.SSHClient, kubeconfig string, allowErr ...bool) error {
-	if err := deleteNode(a.ctx, kubeconfig, client.HostName()); err != nil {
+	hostname, err := client.Hostname()
+	if err != nil {
+		return err
+	}
+	if err := deleteNode(a.ctx, kubeconfig, hostname); err != nil {
 		allowErr := len(allowErr) > 0 && allowErr[0]
 		if !allowErr {
 			return err
