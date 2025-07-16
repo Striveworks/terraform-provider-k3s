@@ -1,7 +1,7 @@
 package provider_test
 
 import (
-	"maps"
+	"encoding/json"
 	"os"
 	"regexp"
 	"testing"
@@ -11,7 +11,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
-	"gopkg.in/yaml.v2"
 )
 
 func TestAccK3sServerResource(t *testing.T) {
@@ -41,13 +40,36 @@ func TestAccK3sServerResource(t *testing.T) {
 				},
 			},
 			{
+				PreConfig: func() {
+
+					client, err := inputs.SshClient(t, 0)
+					if err != nil {
+						t.Errorf("Could not create ssh client: %v", err.Error())
+					}
+
+					jres, err := client.Run("sudo k3s kubectl get nodes -l unit-test=basic -ojson")
+					raw, _ := client.Run("sudo k3s kubectl get nodes -l unit-test=basic")
+					if err != nil {
+						t.Errorf("Could not run kubectl command: %v", err.Error())
+					}
+
+					var nodes map[string]any
+					if err := json.Unmarshal([]byte(jres[0]), &nodes); err != nil {
+						t.Fatal(err.Error())
+					}
+					nc, _ := nodes["items"].([]any)
+					if len(nc) != 0 {
+						t.Errorf("Wrong count of nodes expected. Expected 0, got %s", raw[0])
+					}
+
+				},
 				ConfigFile: K3sServerStaticFile,
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
 					"host":        config.StringVariable(inputs.Nodes[0]),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
-					"config":      config.StringVariable("embedded-registry: true"),
+					"config":      config.StringVariable("node-label: [\"unit-test=basic\"]"),
 				},
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction("k3s_server.main", plancheck.ResourceActionUpdate)},
@@ -61,21 +83,18 @@ func TestAccK3sServerResource(t *testing.T) {
 					if err != nil {
 						t.Errorf("Could not create ssh client: %v", err.Error())
 					}
-					res, err := client.Run("sudo cat /etc/rancher/k3s/config.yaml")
-					if err != nil {
-						t.Errorf("%v", err.Error())
+
+					res, _ := client.Run("sudo k3s kubectl get nodes -l unit-test=basic -ojson")
+					raw, _ := client.Run("sudo k3s kubectl get nodes -oyaml")
+
+					var nodes map[string]any
+					if err := json.Unmarshal([]byte(res[0]), &nodes); err != nil {
+						t.Fatal(err.Error())
 					}
 
-					contents := res[0]
-					var expected map[string]bool
-					if err := yaml.Unmarshal([]byte(res[0]), &expected); err != nil {
-						t.Errorf("%v", err.Error())
-					}
-
-					if !maps.Equal(map[string]bool{
-						"embedded-registry": true,
-					}, expected) {
-						t.Errorf("Expected config to be 'embedded-registry: true' but found %v", contents)
+					nc, _ := nodes["items"].([]any)
+					if len(nc) != 1 {
+						t.Errorf("Wrong count of nodes expected. Expected 1, got %s", raw[0])
 					}
 				},
 				PlanOnly: true,
@@ -83,7 +102,7 @@ func TestAccK3sServerResource(t *testing.T) {
 					"host":        config.StringVariable(inputs.Nodes[0]),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
-					"config":      config.StringVariable("embedded-registry: true"),
+					"config":      config.StringVariable("node-label: [\"unit-test=basic\"]"),
 				},
 			},
 			{
@@ -93,7 +112,7 @@ func TestAccK3sServerResource(t *testing.T) {
 					"host":        config.StringVariable(inputs.Nodes[0]),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
-					"config":      config.StringVariable("embedded-registry: true"),
+					"config":      config.StringVariable("node-label: [\"unit-test=basic\"]"),
 				},
 				Destroy: true,
 			},
@@ -117,15 +136,12 @@ func TestAccK3sHAServerResource(t *testing.T) {
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
 					"hosts": config.ListVariable(
+						config.StringVariable(inputs.Nodes[1]),
 						config.StringVariable(inputs.Nodes[2]),
 						config.StringVariable(inputs.Nodes[3]),
-						config.StringVariable(inputs.Nodes[4]),
 					),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
-					"highly_available": config.ObjectVariable(map[string]config.Variable{
-						"cluster_init": config.BoolVariable(true),
-					}),
 				},
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectSensitiveValue(
@@ -139,13 +155,13 @@ func TestAccK3sHAServerResource(t *testing.T) {
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
 					"hosts": config.ListVariable(
+						config.StringVariable(inputs.Nodes[1]),
 						config.StringVariable(inputs.Nodes[2]),
 						config.StringVariable(inputs.Nodes[3]),
-						config.StringVariable(inputs.Nodes[4]),
 					),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
-					"config":      config.StringVariable("embedded-registry: true"),
+					"config":      config.StringVariable("node-label: [\"unit-test=basic\"]"),
 				},
 
 				ConfigPlanChecks: resource.ConfigPlanChecks{
@@ -153,17 +169,55 @@ func TestAccK3sHAServerResource(t *testing.T) {
 				},
 			},
 			{
+				PreConfig: func() {
+
+					client, err := inputs.SshClient(t, 1)
+					if err != nil {
+						t.Errorf("Could not create ssh client: %v", err.Error())
+					}
+
+					jres, err := client.Run("sudo k3s kubectl get nodes -l unit-test=basic -ojson")
+					raw, _ := client.Run("sudo k3s kubectl get nodes -l unit-test=basic")
+					if err != nil {
+						t.Errorf("Could not run kubectl command: %v", err.Error())
+					}
+
+					var nodes map[string]any
+					if err := json.Unmarshal([]byte(jres[0]), &nodes); err != nil {
+						t.Fatal(err.Error())
+					}
+					nc, _ := nodes["items"].([]any)
+					if len(nc) != 3 {
+						t.Errorf("Wrong count of nodes expected. Expected 3, got %s", raw[0])
+					}
+
+				},
+				ConfigFile: K3sServerStaticFile,
+				Config:     providerConfig,
+				PlanOnly:   true,
+				ConfigVariables: map[string]config.Variable{
+					"hosts": config.ListVariable(
+						config.StringVariable(inputs.Nodes[1]),
+						config.StringVariable(inputs.Nodes[2]),
+						config.StringVariable(inputs.Nodes[3]),
+					),
+					"user":        config.StringVariable(inputs.User),
+					"private_key": config.StringVariable(inputs.SshKey),
+					"config":      config.StringVariable("node-label: [\"unit-test=basic\"]"),
+				},
+			},
+			{
 				ConfigFile: K3sServerStaticFile,
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
 					"hosts": config.ListVariable(
+						config.StringVariable(inputs.Nodes[1]),
 						config.StringVariable(inputs.Nodes[2]),
 						config.StringVariable(inputs.Nodes[3]),
-						config.StringVariable(inputs.Nodes[4]),
 					),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
-					"config":      config.StringVariable("embedded-registry: true"),
+					"config":      config.StringVariable("node-label: [\"unit-test=basic\"]"),
 				},
 				Destroy: true,
 			},

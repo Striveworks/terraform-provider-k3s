@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"regexp"
 
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"gopkg.in/yaml.v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,33 +19,57 @@ import (
 const DATA_DIR string = "/var/lib/rancher/k3s"
 const CONFIG_DIR string = "/etc/rancher/k3s"
 
-type K3sComponent interface {
+type ComponentPreInstall interface {
 	// Ensures all files and configs are present on remote node.
-	RunPreReqs(ssh_client.SSHClient) error
-	// Runs the install script, should be ran after `RunPreReqs`.
-	RunInstall(ssh_client.SSHClient) error
+	Preinstall(ssh_client.SSHClient) error
+}
+
+type ComponentInstall interface {
+	// Ensures all files and configs are present on remote node.
+	Install(ssh_client.SSHClient) error
+}
+
+type ComponentUninstall interface {
 	// Runs the k3s uninstall script that is included.
 	// with the install. Additionally kubeconfig is needed to
 	// remove node from kubelet
-	RunUninstall(ssh_client.SSHClient, string, ...bool) error
+	Uninstall(ssh_client.SSHClient, string, ...bool) error
+}
+
+type ComponentUpdate interface {
 	// Runs an update operation on the k3s node. If
 	// it's a simple config change, this will result
 	// in a systemd restart
 	Update(ssh_client.SSHClient) error
+}
+
+type ComponentStatus interface {
 	// Queries if the systemd service is active.
 	Status(ssh_client.SSHClient) (bool, error)
-	// Gets systemd status.
-	StatusLog(ssh_client.SSHClient) (string, error)
-	// Gets the journalctl logs.
-	Journal(ssh_client.SSHClient) (string, error)
+}
+
+type ComponentResync interface {
 	// Resyncs node object with remote.
 	Resync(ssh_client.SSHClient) error
+}
+
+type ComponentToken interface {
 	// The server token used to join the cluster
 	// Running `Resync` first will ensure this is set.
 	Token() string
 }
 
-func systemdStatus(unit string, client ssh_client.SSHClient) (bool, error) {
+type Component interface {
+	ComponentPreInstall
+	ComponentInstall
+	ComponentUninstall
+	ComponentUpdate
+	ComponentStatus
+	ComponentResync
+	ComponentToken
+}
+
+func systemdStatus(unit string, client ssh_client.SSHRun) (bool, error) {
 	res, err := client.Run(fmt.Sprintf("sudo systemctl is-active %s", unit))
 	if err != nil {
 		return false, err
@@ -153,4 +179,35 @@ func deleteNode(ctx context.Context, kubeconfig string, hostname string) error {
 
 	return clientset.CoreV1().Nodes().Delete(ctx, hostname, metav1.DeleteOptions{})
 
+}
+
+func ParseYamlString(value basetypes.StringValue, mergeWith ...basetypes.StringValue) (config map[any]any, err error) {
+	all := []basetypes.StringValue{value}
+	for _, cfg := range append(all, mergeWith...) {
+		local := make(map[any]any)
+		if err = yaml.Unmarshal([]byte(cfg.ValueString()), &local); err != nil {
+			return
+		}
+		config = mergeMaps(config, local)
+	}
+	return
+}
+
+func mergeMaps(a, b map[interface{}]interface{}) map[interface{}]interface{} {
+	out := make(map[interface{}]interface{}, len(a))
+	maps.Copy(out, a)
+	for k, v := range b {
+		// If you use map[string]interface{}, ok is always false here.
+		// Because yaml.Unmarshal will give you map[interface{}]interface{}.
+		if v, ok := v.(map[interface{}]interface{}); ok {
+			if bv, ok := out[k]; ok {
+				if bv, ok := bv.(map[interface{}]interface{}); ok {
+					out[k] = mergeMaps(bv, v)
+					continue
+				}
+			}
+		}
+		out[k] = v
+	}
+	return out
 }

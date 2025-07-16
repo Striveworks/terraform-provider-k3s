@@ -44,24 +44,47 @@ func NewSSHClient(ctx context.Context, hostnameOrIpAddress string, port int, use
 		}}, nil
 }
 
-type SSHClient interface {
+type SSHRun interface {
 	// Runs a set of commands, gathering their output into
 	// a list of outputs
 	Run(commands ...string) ([]string, error)
+}
+
+type SSHStream interface {
 	// Runs a set of commands, streaming their output to a callbacks
 	// Callbacks will be (stdout, stderr) or (stdout + stderr,)
 	RunStream(commands []string) error
+}
+
+type SSHWaitForReady interface {
 	// Waits for the server to be ready
 	WaitForReady() error
+}
+
+type SSHHost interface {
 	// Host name/address
 	Host() string
 	// Gets the hostname, which is passed in via constructor.
 	HostnameOrIpAddress() string
+}
+
+type SSHHostname interface {
 	// Gets the hostname by running `hostname` on the remote
 	Hostname() (string, error)
+}
+
+type SSHReadFile interface {
 	// Reads file from remote path
 	ReadFile(path string, missingOk bool, sudo bool) (string, error)
-	ReadOptionalFile(path string, sudo ...bool) (string, error)
+}
+
+type SSHClient interface {
+	SSHRun
+	SSHStream
+	SSHWaitForReady
+	SSHHost
+	SSHHostname
+	SSHReadFile
 }
 
 var _ SSHClient = &sshClient{}

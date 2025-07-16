@@ -1,7 +1,7 @@
 package provider_test
 
 import (
-	"fmt"
+	"encoding/json"
 	"os"
 	"regexp"
 	"testing"
@@ -11,7 +11,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
-	"striveworks.us/terraform-provider-k3s/internal/k3s"
 )
 
 var K3sAgentStaticFile = config.StaticFile("../../examples/resources/k3s_agent/resource.tf")
@@ -48,58 +47,31 @@ func TestAccK3sAgentResource(t *testing.T) {
 				},
 			},
 			{
-				Config: providerConfig,
 				PreConfig: func() {
-					serverClient, err := inputs.SshClient(t, 0)
+
+					client, err := inputs.SshClient(t, 0)
 					if err != nil {
-						t.Errorf("%v", err.Error())
-					}
-					server := k3s.NewK3sServerComponent(t.Context(), nil, nil, nil, "/usr/local/bin")
-					if err := server.Resync(serverClient); err != nil {
-						t.Errorf("%v", err.Error())
+						t.Errorf("Could not create ssh client: %v", err.Error())
 					}
 
-					agentClient, err := inputs.SshClient(t, 2)
+					jres, err := client.Run("sudo k3s kubectl get nodes -ojson")
+					raw, _ := client.Run("sudo k3s kubectl get nodes")
 					if err != nil {
-						t.Errorf("%v", err.Error())
+						t.Errorf("Could not run kubectl command: %v", err.Error())
 					}
 
-					if _, err = agentClient.Run(fmt.Sprintf("curl -sfL https://get.k3s.io | K3S_URL=https://%s:6443 K3S_TOKEN=%s sh -", inputs.Nodes[0], server.Token())); err != nil {
-						t.Errorf("%v", err.Error())
+					var nodes map[string]any
+					if err := json.Unmarshal([]byte(jres[0]), &nodes); err != nil {
+						t.Fatal(err.Error())
+					}
+					nc, _ := nodes["items"].([]any)
+					if len(nc) != 2 {
+						t.Errorf("Wrong count of nodes expected. Expected 2, got %s", raw[0])
 					}
 
 				},
-				ImportState:        true,
-				ImportStatePersist: true,
-				ResourceName:       "k3s_agent.main[1]",
-				ImportStateId:      fmt.Sprintf("host=%s,user=%s,private_key=%s", inputs.Nodes[2], inputs.User, inputs.SshKey),
-				ConfigFile:         K3sAgentStaticFile,
-				ConfigVariables: map[string]config.Variable{
-					"server_host": config.StringVariable(inputs.Nodes[0]),
-					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[1]), config.StringVariable(inputs.Nodes[2])),
-					"user":        config.StringVariable(inputs.User),
-					"private_key": config.StringVariable(inputs.SshKey),
-					"secondary":   config.BoolVariable(true),
-				},
-				ConfigStateChecks: []statecheck.StateCheck{
-					statecheck.ExpectSensitiveValue(
-						"k3s_server.main",
-						tfjsonpath.New("token"),
-					),
-					statecheck.ExpectKnownValue(
-						"k3s_agent.main[0]",
-						tfjsonpath.New("active"),
-						knownvalue.NotNull(),
-					),
-					statecheck.ExpectKnownValue(
-						"k3s_agent.main[1]",
-						tfjsonpath.New("active"),
-						knownvalue.NotNull(),
-					),
-				},
-			}, {
 				Config:             providerConfig,
-				ExpectNonEmptyPlan: false,
+				ExpectNonEmptyPlan: true,
 				PlanOnly:           true,
 				ConfigFile:         K3sAgentStaticFile,
 				ConfigVariables: map[string]config.Variable{
@@ -107,7 +79,6 @@ func TestAccK3sAgentResource(t *testing.T) {
 					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[1]), config.StringVariable(inputs.Nodes[2])),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
-					"secondary":   config.BoolVariable(true),
 				},
 			},
 		},

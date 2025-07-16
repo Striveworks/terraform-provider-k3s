@@ -7,20 +7,34 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/joho/godotenv"
+	"gopkg.in/yaml.v2"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
-type K3sAgent interface {
-	K3sComponent
+type AgentConfig interface {
 	Config() map[any]any
+}
+
+type AgentRegistry interface {
+	Registry() map[any]any
+}
+
+type AgentServer interface {
 	Server() string
 }
 
-var _ K3sAgent = &agent{}
+type Agent interface {
+	Component
+	AgentServer
+	AgentRegistry
+	AgentConfig
+}
+
+var _ Agent = &agent{}
 
 type agent struct {
 	config   map[any]any
-	version  *string
+	version  string
 	ctx      context.Context
 	binDir   string
 	token    string
@@ -34,12 +48,30 @@ func (a *agent) Config() map[any]any {
 }
 
 // Builds agent for creating and deleting.
-func NewK3sAgentComponent(ctx context.Context, config map[any]any, registry map[any]any, version *string, token string, server string, binDir string) K3sAgent {
-	return &agent{ctx: ctx, config: config, registry: registry, version: version, binDir: binDir, token: token, server: server}
+func NewK3sAgentComponent(
+	ctx context.Context,
+	config string,
+	registry string,
+	version string,
+	token string,
+	server string,
+	binDir string,
+) (Agent, error) {
+	cfg := make(map[any]any)
+	if err := yaml.Unmarshal([]byte(config), &cfg); err != nil {
+		return nil, fmt.Errorf("parsing config: %s", err.Error())
+	}
+
+	reg := make(map[any]any)
+	if err := yaml.Unmarshal([]byte(config), &reg); err != nil {
+		return nil, fmt.Errorf("parsing registry: %s", err.Error())
+	}
+
+	return &agent{ctx: ctx, config: cfg, registry: reg, version: version, binDir: binDir, token: token, server: server}, nil
 }
 
 // Easy constructor for using just uninstall.
-func NewK3sAgentUninstall(ctx context.Context, binDir string) K3sAgent {
+func NewK3sAgentUninstall(ctx context.Context, binDir string) Agent {
 	return &agent{ctx: ctx, binDir: binDir}
 }
 
@@ -51,8 +83,12 @@ func (a *agent) Server() string {
 	return a.server
 }
 
-// RunInstall implements K3sAgent.
-func (a *agent) RunInstall(client ssh_client.SSHClient) error {
+func (a *agent) Registry() map[any]any {
+	return a.registry
+}
+
+// Install implements K3sAgent.
+func (a *agent) Install(client ssh_client.SSHClient) error {
 
 	flags := []string{
 		"INSTALL_K3S_SKIP_START=true",
@@ -61,8 +97,8 @@ func (a *agent) RunInstall(client ssh_client.SSHClient) error {
 		fmt.Sprintf("K3S_TOKEN=%s", a.token),
 		fmt.Sprintf("BIN_DIR=%s", a.binDir),
 	}
-	if a.version != nil {
-		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION='%s'", *a.version))
+	if a.version != "" {
+		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION='%s'", a.version))
 	}
 
 	commands := []string{
@@ -86,8 +122,8 @@ func (a *agent) RunInstall(client ssh_client.SSHClient) error {
 	return nil
 }
 
-// RunPreReqs implements K3sAgent.
-func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
+// Preinstall implements K3sAgent.
+func (a *agent) Preinstall(client ssh_client.SSHClient) error {
 
 	if err := client.WaitForReady(); err != nil {
 		return err
@@ -124,8 +160,8 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
 	return client.RunStream(commands)
 }
 
-// RunUninstall implements K3sAgent.
-func (a *agent) RunUninstall(client ssh_client.SSHClient, kubeconfig string, allowErr ...bool) error {
+// Uninstall implements K3sAgent.
+func (a *agent) Uninstall(client ssh_client.SSHClient, kubeconfig string, allowErr ...bool) error {
 	hostname, err := client.Hostname()
 	if err != nil {
 		return err
@@ -156,7 +192,22 @@ func (a *agent) Journal(client ssh_client.SSHClient) (string, error) {
 
 // Status implements K3sAgent.
 func (a *agent) Status(client ssh_client.SSHClient) (bool, error) {
-	return systemdStatus("k3s-agent", client)
+	status, err := systemdStatus("k3s-agent", client)
+	if err != nil {
+		// Take error as false for status, which should be just as bad
+		tflog.Error(a.ctx, fmt.Sprintf("error fetching agent agent status: %s", err.Error()))
+	} else if !status {
+		tflog.Warn(a.ctx, "k3s agent isn't active, dumping journalctl logs to TRACE")
+		logs, err := client.Run("sudo journalctl -u k3s-agent")
+		if err != nil {
+			return false, fmt.Errorf("retrieving journalctl status: %s", err.Error())
+		}
+		tflog.Trace(a.ctx, logs[0])
+	} else {
+		tflog.Debug(a.ctx, "k3s agent status fetched")
+	}
+
+	return status, nil
 }
 
 func (a *agent) StatusLog(client ssh_client.SSHClient) (string, error) {

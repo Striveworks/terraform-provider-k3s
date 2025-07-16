@@ -44,8 +44,7 @@ resource "k3s_server" "join" {
   }
   config = var.config
   highly_available = {
-    token      = k3s_server.init.token
-    server     = k3s_server.init.server
-    kubeconfig = k3s_server.init.kubeconfig
+    token  = k3s_server.init.token
+    server = k3s_server.init.server
   }
 }

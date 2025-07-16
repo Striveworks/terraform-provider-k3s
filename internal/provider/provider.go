@@ -26,8 +26,18 @@ func New(version string) func() provider.Provider {
 	}
 }
 
+func NewDebugMode(version string) func() provider.Provider {
+	return func() provider.Provider {
+		return &K3sProvider{
+			Version:   version,
+			DebugMode: true,
+		}
+	}
+}
+
 type K3sProvider struct {
-	Version string
+	Version   string
+	DebugMode bool
 }
 
 type k3sProviderModel struct {
