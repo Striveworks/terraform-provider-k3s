@@ -36,22 +36,26 @@ variable "config" {
 }
 
 resource "k3s_server" "main" {
-  host        = var.server_host
-  user        = var.user
-  private_key = var.private_key
-  config      = var.config
+  auth = {
+    host        = var.server_host
+    user        = var.user
+    private_key = var.private_key
+  }
+  config = var.config
 }
 
 resource "k3s_agent" "main" {
   count = length(var.agent_hosts)
 
-  host        = var.agent_hosts[count.index]
-  user        = var.user
-  private_key = var.private_key
-  kubeconfig  = k3s_server.main.kubeconfig
-  server      = k3s_server.main.server
-  token       = k3s_server.main.token
-  config      = var.config
+  auth = {
+    host        = var.agent_hosts[count.index]
+    user        = var.user
+    private_key = var.private_key
+  }
+  kubeconfig = k3s_server.main.kubeconfig
+  server     = k3s_server.main.server
+  token      = k3s_server.main.token
+  config     = var.config
 }
 ```
 
@@ -67,8 +71,10 @@ resource "k3s_agent" "main" {
 
 ### Optional
 
+- `allow_delete_err` (Boolean) If this is true, deleting the node using kubectl first will be allowed to error not stopping the k3s uninstall process
 - `bin_dir` (String) Value of a path used to put the k3s binary
 - `config` (String) K3s server config
+- `registry` (String) K3s agent registry
 
 ### Read-Only
 

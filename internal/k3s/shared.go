@@ -25,7 +25,7 @@ type K3sComponent interface {
 	// Runs the k3s uninstall script that is included.
 	// with the install. Additionally kubeconfig is needed to
 	// remove node from kubelet
-	RunUninstall(ssh_client.SSHClient, string) error
+	RunUninstall(ssh_client.SSHClient, string, ...bool) error
 	// Runs an update operation on the k3s node. If
 	// it's a simple config change, this will result
 	// in a systemd restart

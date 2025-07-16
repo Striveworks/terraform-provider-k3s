@@ -17,8 +17,10 @@ variable "config" {
 }
 
 resource "k3s_server" "main" {
-  host        = var.host
-  user        = var.user
-  private_key = var.private_key
-  config      = var.config
+  auth = {
+    host        = var.host
+    user        = var.user
+    private_key = var.private_key
+  }
+  config = var.config
 }

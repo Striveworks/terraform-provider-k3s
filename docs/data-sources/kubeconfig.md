@@ -32,15 +32,23 @@ variable "config" {
 }
 
 resource "k3s_server" "main" {
-  host        = var.host
-  user        = var.user
-  private_key = var.private_key
-  config      = var.config
+  auth = {
+    host        = var.host
+    user        = var.user
+    private_key = var.private_key
+  }
+  config = var.config
 }
 
 data "k3s_kubeconfig" "kubeconfig" {
-  kubeconfig = k3s_server.main.kubeconfig
-  hostname   = "mylb-dns-name"
+  auth = {
+    host        = var.host
+    user        = var.user
+    private_key = var.private_key
+  }
+  hostname = "mylb-dns-name"
+
+  depends_on = [k3s_server.main]
 }
 
 output "kubeconfig" {

@@ -193,6 +193,9 @@ func (n ClusterAuth) Schema() schema.Attribute {
 	return schema.SingleNestedAttribute{
 		Computed:    true,
 		Description: "Cluster auth objects",
+		PlanModifiers: []planmodifier.Object{
+			objectplanmodifier.UseStateForUnknown(),
+		},
 		Attributes: map[string]schema.Attribute{
 			"client_certificate_data": schema.StringAttribute{
 				Computed:            true,

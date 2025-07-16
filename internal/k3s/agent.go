@@ -2,13 +2,11 @@ package k3s
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/joho/godotenv"
-	"gopkg.in/yaml.v2"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
@@ -21,12 +19,13 @@ type K3sAgent interface {
 var _ K3sAgent = &agent{}
 
 type agent struct {
-	config  map[any]any
-	version *string
-	ctx     context.Context
-	binDir  string
-	token   string
-	server  string
+	config   map[any]any
+	version  *string
+	ctx      context.Context
+	binDir   string
+	token    string
+	server   string
+	registry map[any]any
 }
 
 // Token implements K3sAgent.
@@ -34,8 +33,14 @@ func (a *agent) Config() map[any]any {
 	return a.config
 }
 
-func NewK3sAgentComponent(ctx context.Context, config map[any]any, version *string, token string, server string, binDir string) K3sAgent {
-	return &agent{ctx: ctx, config: config, version: version, binDir: binDir, token: token, server: server}
+// Builds agent for creating and deleting.
+func NewK3sAgentComponent(ctx context.Context, config map[any]any, registry map[any]any, version *string, token string, server string, binDir string) K3sAgent {
+	return &agent{ctx: ctx, config: config, registry: registry, version: version, binDir: binDir, token: token, server: server}
+}
+
+// Easy constructor for using just uninstall.
+func NewK3sAgentUninstall(ctx context.Context, binDir string) K3sAgent {
+	return &agent{ctx: ctx, binDir: binDir}
 }
 
 func (a *agent) Token() string {
@@ -88,7 +93,7 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
 		return err
 	}
 
-	configContents, err := yaml.Marshal(a.config)
+	cfgCommands, err := configCommands(a.ctx, a.config)
 	if err != nil {
 		return err
 	}
@@ -98,26 +103,36 @@ func (a *agent) RunPreReqs(client ssh_client.SSHClient) error {
 		return err
 	}
 
-	commands := []string{fmt.Sprintf("sudo mkdir -p %s", a.dataDir()), fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR)}
-	files := []struct {
-		path     string
-		contents string
-	}{
-		{a.binDir + "/k3s-install.sh", installContents},
-		{CONFIG_DIR + "/config.yaml", base64.StdEncoding.EncodeToString(configContents)},
+	regCommands, err := registryCommands(a.ctx, a.registry)
+	if err != nil {
+		return err
 	}
 
-	for _, file := range files {
-		commands = append(commands, WriteFileCommands(file.path, file.contents)...)
+	commands := append(WriteFileCommands(a.binDir+"/k3s-install.sh", installContents),
+		[]string{
+			fmt.Sprintf("sudo mkdir -p %s", a.dataDir()),
+			fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR),
+		}...)
+
+	// Write config file
+	commands = append(commands, cfgCommands...)
+
+	if len(regCommands) > 0 {
+		commands = append(commands, regCommands...)
 	}
 
 	return client.RunStream(commands)
 }
 
 // RunUninstall implements K3sAgent.
-func (a *agent) RunUninstall(client ssh_client.SSHClient, kubeconfig string) error {
+func (a *agent) RunUninstall(client ssh_client.SSHClient, kubeconfig string, allowErr ...bool) error {
 	if err := deleteNode(a.ctx, kubeconfig, client.HostName()); err != nil {
-		return err
+		allowErr := len(allowErr) > 0 && allowErr[0]
+		if !allowErr {
+			return err
+		}
+		tflog.Warn(a.ctx, fmt.Sprintf("error deleting node via kubectl: %s", err.Error()))
+
 	}
 	return client.RunStream([]string{fmt.Sprintf("sudo bash %s/k3s-agent-uninstall.sh", a.binDir)})
 }

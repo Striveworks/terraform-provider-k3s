@@ -12,7 +12,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"gopkg.in/yaml.v2"
 	"striveworks.us/terraform-provider-k3s/internal/k3s"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
@@ -31,9 +30,11 @@ type AgentClientModel struct {
 	Server types.String `tfsdk:"server"`
 	BinDir types.String `tfsdk:"bin_dir"`
 	// Configs
-	KubeConfig types.String `tfsdk:"kubeconfig"`
-	K3sConfig  types.String `tfsdk:"config"`
-	Token      types.String `tfsdk:"token"`
+	KubeConfig     types.String `tfsdk:"kubeconfig"`
+	K3sRegistry    types.String `tfsdk:"registry"`
+	K3sConfig      types.String `tfsdk:"config"`
+	Token          types.String `tfsdk:"token"`
+	AllowDeleteErr types.Bool   `tfsdk:"allow_delete_err"`
 	// Outputs
 	Id     types.String `tfsdk:"id"`
 	Active types.Bool   `tfsdk:"active"`
@@ -58,14 +59,21 @@ func (s *AgentClientModel) sshClient(ctx context.Context) (ssh_client.SSHClient,
 }
 
 func (s *AgentClientModel) buildAgent(ctx context.Context, version *string) (k3s.K3sAgent, error) {
-	config := make(map[any]any)
-	if err := yaml.Unmarshal([]byte(s.K3sConfig.ValueString()), &config); err != nil {
-		return nil, err
+
+	config, err := ParseYamlString(s.K3sConfig)
+	if err != nil {
+		return nil, fmt.Errorf("parsing config: %s", err.Error())
+	}
+
+	registry, err := ParseYamlString(s.K3sRegistry)
+	if err != nil {
+		return nil, fmt.Errorf("parsing registry: %s", err.Error())
 	}
 
 	return k3s.NewK3sAgentComponent(
 		ctx,
 		config,
+		registry,
 		version,
 		s.Token.ValueString(),
 		s.Server.ValueString(),
@@ -93,6 +101,14 @@ func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaReques
 			"config": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "K3s server config",
+			},
+			"registry": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "K3s agent registry",
+			},
+			"allow_delete_err": schema.BoolAttribute{
+				Optional:            true,
+				MarkdownDescription: "If this is true, deleting the node using kubectl first will be allowed to error not stopping the k3s uninstall process",
 			},
 			"token": schema.StringAttribute{
 				Required:            true,
@@ -236,7 +252,7 @@ func (k *K3sAgentResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
-	agent := k3s.NewK3sAgentComponent(ctx, nil, nil, "", "", data.BinDir.ValueString())
+	agent := k3s.NewK3sAgentUninstall(ctx, data.BinDir.ValueString())
 	if err := agent.RunUninstall(sshClient, data.KubeConfig.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Creating uninstall k3s-agent", err.Error())
 		return
@@ -315,6 +331,10 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 		resp.Diagnostics.AddError("Creating uninstall k3s", err.Error())
 		return
 	}
+
+	state.K3sConfig = data.K3sConfig
+	state.K3sRegistry = data.K3sRegistry
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 // ConfigValidators implements resource.ResourceWithConfigValidators.

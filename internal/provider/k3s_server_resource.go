@@ -332,7 +332,7 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 		kubeconfig = haConfig.KubeConfig.ValueString()
 	}
 
-	server := k3s.NewK3sServerComponent(ctx, nil, nil, nil, data.BinDir.ValueString())
+	server := k3s.NewK3ServerUninstall(ctx, data.BinDir.ValueString())
 	if err := server.RunUninstall(sshClient, kubeconfig); err != nil {
 		resp.Diagnostics.AddError("Creating uninstall k3s", err.Error())
 	}
@@ -439,6 +439,10 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 		resp.Diagnostics.AddError("Error updating server", err.Error())
 	}
 
+	if err := server.Resync(sshClient); err != nil {
+		resp.Diagnostics.AddError("Error resyncing server", err.Error())
+	}
+
 	tflog.Info(ctx, "Getting k3s server status")
 	active, err := server.Status(sshClient)
 	if err != nil {
@@ -449,6 +453,7 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 	tflog.Info(ctx, "Setting k3s server outputs")
 	state.Active = types.BoolValue(active)
 	state.K3sConfig = data.K3sConfig
+	state.K3sRegistry = data.K3sRegistry
 	if builder.Ha != nil {
 		state.HaConfig = builder.Ha.ToObject(ctx)
 	}
@@ -463,7 +468,7 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 		state.OidcConfig = builder.Oidc.ToObject(ctx)
 	}
 
-	authData, err := BuildClusterAuth(data.KubeConfig.ValueString())
+	authData, err := BuildClusterAuth(server.KubeConfig())
 	if err != nil {
 		resp.Diagnostics.AddError("malformed kubeconfig", err.Error())
 		return

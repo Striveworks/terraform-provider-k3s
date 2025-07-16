@@ -27,9 +27,11 @@ variable "oidc_config" {
 }
 
 resource "k3s_server" "init" {
-  host        = var.host
-  user        = var.user
-  private_key = var.private_key
+  auth = {
+    host        = var.host
+    user        = var.user
+    private_key = var.private_key
+  }
   config      = var.config
   oidc_config = var.oidc_config
 }

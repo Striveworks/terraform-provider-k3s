@@ -84,6 +84,11 @@ func NewK3sServerComponent(ctx context.Context, config map[any]any, registry map
 	}
 }
 
+// Easy constructor for using just uninstall.
+func NewK3ServerUninstall(ctx context.Context, binDir string) K3sServer {
+	return &server{ctx: ctx, binDir: binDir}
+}
+
 // New k3s ha server component meant to join a server that has already been initialized.
 func NewK3sServerHAComponent(ctx context.Context, config map[any]any, registry map[any]any, version *string, token string, binDir string) K3sServer {
 	return &server{
@@ -131,15 +136,12 @@ func (s *server) RunPreReqs(client ssh_client.SSHClient) error {
 		return err
 	}
 
-	commands := []string{
-		// Move over Install script
-		fmt.Sprintf("echo %q | sudo tee %s/k3s-install.tmp.sh > /dev/null", installContents, s.binDir),
-		fmt.Sprintf("sudo base64 -d %[1]s/k3s-install.tmp.sh | sudo tee %[1]s/k3s-install.sh > /dev/null", s.binDir),
-		fmt.Sprintf("sudo rm %s/k3s-install.tmp.sh", s.binDir),
-		// Ensure directories exist
-		fmt.Sprintf("sudo mkdir -p %s", s.dataDir()),
-		fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR),
-	}
+	commands := append(WriteFileCommands(s.binDir+"/k3s-install.sh", installContents),
+		[]string{
+			fmt.Sprintf("sudo mkdir -p %s", s.dataDir()),
+			fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR),
+		}...)
+
 	// Write config file
 	commands = append(commands, cfgCommands...)
 
@@ -195,10 +197,15 @@ func (s *server) RunInstall(client ssh_client.SSHClient) (err error) {
 }
 
 // RunUninstall implements K3sServer uninstall.
-func (s *server) RunUninstall(client ssh_client.SSHClient, kubeconfig string) error {
+func (s *server) RunUninstall(client ssh_client.SSHClient, kubeconfig string, allowErr ...bool) error {
 
 	if err := deleteNode(s.ctx, kubeconfig, client.HostName()); err != nil {
-		return err
+		allowErr := len(allowErr) > 0 && allowErr[0]
+		if !allowErr {
+			return err
+		}
+		tflog.Warn(s.ctx, fmt.Sprintf("error deleting node via kubectl: %s", err.Error()))
+
 	}
 	return client.RunStream([]string{fmt.Sprintf("sudo bash %s/k3s-uninstall.sh", s.binDir)})
 }
