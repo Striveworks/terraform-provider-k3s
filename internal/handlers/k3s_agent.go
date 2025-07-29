@@ -175,6 +175,8 @@ func (existing *AgentClientModel) Update(
 	}
 
 	existing.Active = types.BoolValue(status)
+	existing.K3sRegistry = inc.K3sRegistry
+	existing.K3sConfig = inc.K3sConfig
 
 	return nil
 }
