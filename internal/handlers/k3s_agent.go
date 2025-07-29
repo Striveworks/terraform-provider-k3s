@@ -143,6 +143,7 @@ func (a *AgentClientModel) Create(
 }
 
 type TK3sAgentUpdate interface {
+	k3s.ComponentPreInstall
 	k3s.ComponentUpdate
 	k3s.ComponentStatus
 }
@@ -162,6 +163,10 @@ func (existing *AgentClientModel) Update(
 	if existing.K3sConfig.Equal(inc.K3sConfig) && existing.K3sRegistry.Equal(inc.K3sRegistry) {
 		tflog.Debug(ctx, "No change is needed, only supporting config and registry updates")
 		return nil
+	}
+
+	if err := agent.Preinstall(sshClient); err != nil {
+		return fmt.Errorf("k3s agent updating: %s", err.Error())
 	}
 
 	if err := agent.Update(sshClient); err != nil {
