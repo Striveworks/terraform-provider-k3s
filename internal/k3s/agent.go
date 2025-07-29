@@ -63,7 +63,7 @@ func NewK3sAgentComponent(
 	}
 
 	reg := make(map[any]any)
-	if err := yaml.Unmarshal([]byte(config), &reg); err != nil {
+	if err := yaml.Unmarshal([]byte(registry), &reg); err != nil {
 		return nil, fmt.Errorf("parsing registry: %s", err.Error())
 	}
 
