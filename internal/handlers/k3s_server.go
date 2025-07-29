@@ -213,6 +213,7 @@ func (s *ServerClientModel) Create(
 }
 
 type TServerUpdate interface {
+	k3s.ComponentPreInstall
 	k3s.ComponentUpdate
 	k3s.ComponentStatus
 	k3s.ServerKubeconfig
@@ -236,6 +237,11 @@ func (s *ServerClientModel) Update(
 		tflog.Debug(ctx, "No change is needed, only supporting config, registry and oidc updates")
 		return nil
 	}
+
+	if err := server.Preinstall(sshClient); err != nil {
+		return fmt.Errorf("running k3s server prereqs: %s", err.Error())
+	}
+	tflog.Debug(ctx, "k3s server pre install ran")
 
 	if err := server.Update(sshClient); err != nil {
 		return fmt.Errorf("k3s agent updating: %s", err.Error())

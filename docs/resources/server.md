@@ -5,13 +5,13 @@ page_title: "k3s_server Resource - k3s"
 subcategory: ""
 description: |-
   Creates a k3s server resource. Only one of password or private_key can be passed.
-  If ran in highly available mode, it is up to the consumers of this module to correctly implement the raft protocol and create an odd number of ha nodes.
+  If ran in highly available mode, it is up to the consumers of this module to correctly implement the raft protocol and create an odd number of ha nodes. Due to how HA works, we do not offer a method to gracefully delete a controller node from the cluster before running k3s-uninstall.sh during deletion of this resource.
 ---
 
 # k3s_server (Resource)
 
 Creates a k3s server resource. Only one of `password` or `private_key` can be passed.
-If ran in highly available mode, it is up to the consumers of this module to correctly implement the raft protocol and create an odd number of ha nodes.
+If ran in highly available mode, it is up to the consumers of this module to correctly implement the raft protocol and create an odd number of ha nodes. Due to how HA works, we do not offer a method to gracefully delete a controller node from the cluster before running `k3s-uninstall.sh` during deletion of this resource.
 
  
 ## Example Usage
@@ -105,9 +105,8 @@ resource "k3s_server" "join" {
   }
   config = var.config
   highly_available = {
-    token      = k3s_server.init.token
-    server     = k3s_server.init.server
-    kubeconfig = k3s_server.init.kubeconfig
+    token  = k3s_server.init.token
+    server = k3s_server.init.server
   }
 }
 ``` 
@@ -210,7 +209,6 @@ Optional:
 Optional:
 
 - `cluster_init` (Boolean) Node is the init node for the HA cluster
-- `kubeconfig` (String, Sensitive) KubeConfig for the cluster
 - `server` (String) Url of init node
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster
 

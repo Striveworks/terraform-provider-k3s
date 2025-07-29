@@ -26,11 +26,16 @@ type ServerOidc interface {
 
 type ServerConfig interface {
 	// The k3s config
-	Config() string
+	Config() map[any]any
+}
+
+type ServerRegistry interface {
+	// The k3s registry
+	Registry() map[any]any
 }
 
 type ServerHaMode interface {
-	// The k3s config
+	// Adds highly avail config to the node
 	AddHA(cluster_init bool, token string, server string)
 }
 
@@ -40,6 +45,7 @@ type Server interface {
 	ServerOidc
 	ServerConfig
 	ServerHaMode
+	ServerRegistry
 }
 
 var _ Server = &server{}
@@ -67,9 +73,13 @@ func (s *server) Token() string {
 }
 
 // Token implements K3sServer.
-func (s *server) Config() string {
-	config, _ := yaml.Marshal(&s.config)
-	return string(config)
+func (s *server) Config() map[any]any {
+	return s.config
+}
+
+// Token implements K3sServer.
+func (s *server) Registry() map[any]any {
+	return s.registry
 }
 
 func (s *server) AddHA(cluster_init bool, token string, server string) {
@@ -97,7 +107,7 @@ func NewK3sServerComponent(ctx context.Context, config string, registry string, 
 	}
 
 	reg := make(map[any]any)
-	if err := yaml.Unmarshal([]byte(config), &reg); err != nil {
+	if err := yaml.Unmarshal([]byte(registry), &reg); err != nil {
 		return nil, fmt.Errorf("parsing registry: %s", err.Error())
 	}
 
