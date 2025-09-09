@@ -29,3 +29,7 @@ variable "nodes" {
   type    = number
   default = 4
 }
+
+variable "ssh_keys" {
+  type = any
+}

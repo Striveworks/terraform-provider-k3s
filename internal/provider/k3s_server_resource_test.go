@@ -20,7 +20,7 @@ func TestAccK3sServerResource(t *testing.T) {
 	if err != nil {
 		t.Errorf("%v", err.Error())
 	}
-	inputs = inputs.ServerTests()
+
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
@@ -28,7 +28,7 @@ func TestAccK3sServerResource(t *testing.T) {
 				ConfigFile: K3sServerStaticFile,
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
-					"host":        config.StringVariable(inputs.Nodes[0]),
+					"host":        config.StringVariable(inputs.Nodes.Server[0]),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 				},
@@ -42,7 +42,7 @@ func TestAccK3sServerResource(t *testing.T) {
 			{
 				PreConfig: func() {
 
-					client, err := inputs.SshClient(t, 0)
+					client, err := inputs.ServerSshClient(t, 0)
 					if err != nil {
 						t.Errorf("Could not create ssh client: %v", err.Error())
 					}
@@ -66,7 +66,7 @@ func TestAccK3sServerResource(t *testing.T) {
 				ConfigFile: K3sServerStaticFile,
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
-					"host":        config.StringVariable(inputs.Nodes[0]),
+					"host":        config.StringVariable(inputs.Nodes.Server[0]),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 					"config":      config.StringVariable("node-label: [\"unit-test=basic\"]"),
@@ -79,7 +79,7 @@ func TestAccK3sServerResource(t *testing.T) {
 				ConfigFile: K3sServerStaticFile,
 				Config:     providerConfig,
 				PreConfig: func() {
-					client, err := inputs.SshClient(t, 0)
+					client, err := inputs.ServerSshClient(t, 0)
 					if err != nil {
 						t.Errorf("Could not create ssh client: %v", err.Error())
 					}
@@ -99,7 +99,7 @@ func TestAccK3sServerResource(t *testing.T) {
 				},
 				PlanOnly: true,
 				ConfigVariables: map[string]config.Variable{
-					"host":        config.StringVariable(inputs.Nodes[0]),
+					"host":        config.StringVariable(inputs.Nodes.Server[0]),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 					"config":      config.StringVariable("node-label: [\"unit-test=basic\"]"),
@@ -109,7 +109,7 @@ func TestAccK3sServerResource(t *testing.T) {
 				ConfigFile: K3sServerStaticFile,
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
-					"host":        config.StringVariable(inputs.Nodes[0]),
+					"host":        config.StringVariable(inputs.Nodes.Server[0]),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 					"config":      config.StringVariable("node-label: [\"unit-test=basic\"]"),
@@ -127,7 +127,6 @@ func TestAccK3sHAServerResource(t *testing.T) {
 	if err != nil {
 		t.Errorf("%v", err.Error())
 	}
-	inputs = inputs.ServerTests()
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
@@ -136,9 +135,9 @@ func TestAccK3sHAServerResource(t *testing.T) {
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
 					"hosts": config.ListVariable(
-						config.StringVariable(inputs.Nodes[1]),
-						config.StringVariable(inputs.Nodes[2]),
-						config.StringVariable(inputs.Nodes[3]),
+						config.StringVariable(inputs.Nodes.Server[1]),
+						config.StringVariable(inputs.Nodes.Server[2]),
+						config.StringVariable(inputs.Nodes.Server[3]),
 					),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
@@ -155,9 +154,9 @@ func TestAccK3sHAServerResource(t *testing.T) {
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
 					"hosts": config.ListVariable(
-						config.StringVariable(inputs.Nodes[1]),
-						config.StringVariable(inputs.Nodes[2]),
-						config.StringVariable(inputs.Nodes[3]),
+						config.StringVariable(inputs.Nodes.Server[1]),
+						config.StringVariable(inputs.Nodes.Server[2]),
+						config.StringVariable(inputs.Nodes.Server[3]),
 					),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
@@ -171,7 +170,7 @@ func TestAccK3sHAServerResource(t *testing.T) {
 			{
 				PreConfig: func() {
 
-					client, err := inputs.SshClient(t, 1)
+					client, err := inputs.ServerSshClient(t, 1)
 					if err != nil {
 						t.Errorf("Could not create ssh client: %v", err.Error())
 					}
@@ -197,9 +196,9 @@ func TestAccK3sHAServerResource(t *testing.T) {
 				PlanOnly:   true,
 				ConfigVariables: map[string]config.Variable{
 					"hosts": config.ListVariable(
-						config.StringVariable(inputs.Nodes[1]),
-						config.StringVariable(inputs.Nodes[2]),
-						config.StringVariable(inputs.Nodes[3]),
+						config.StringVariable(inputs.Nodes.Server[1]),
+						config.StringVariable(inputs.Nodes.Server[2]),
+						config.StringVariable(inputs.Nodes.Server[3]),
 					),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
@@ -211,9 +210,9 @@ func TestAccK3sHAServerResource(t *testing.T) {
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
 					"hosts": config.ListVariable(
-						config.StringVariable(inputs.Nodes[1]),
-						config.StringVariable(inputs.Nodes[2]),
-						config.StringVariable(inputs.Nodes[3]),
+						config.StringVariable(inputs.Nodes.Server[1]),
+						config.StringVariable(inputs.Nodes.Server[2]),
+						config.StringVariable(inputs.Nodes.Server[3]),
 					),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
@@ -222,6 +221,79 @@ func TestAccK3sHAServerResource(t *testing.T) {
 				Destroy: true,
 			},
 		},
+	})
+}
+
+func TestAccK3sServerSetVersion(t *testing.T) {
+	// Read text to inject provider version
+	raw, _ := os.ReadFile("../../examples/resources/k3s_server/examples/basic/resource.tf")
+
+	inputs, err := LoadInputs(os.Getenv("TEST_JSON_PATH"))
+	if err != nil {
+		t.Errorf("%v", err.Error())
+	}
+	providerConfig := `
+provider "k3s" {
+	k3s_version = "v1.32.7+k3s1"
+}
+	` + string(raw)
+	t.Parallel()
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		IsUnitTest:               true,
+		Steps: []resource.TestStep{{
+			Config: providerConfig,
+			ConfigVariables: map[string]config.Variable{
+				"host":        config.StringVariable(inputs.Nodes.Server[4]),
+				"user":        config.StringVariable(inputs.User),
+				"private_key": config.StringVariable(inputs.SshKey),
+			},
+			ConfigStateChecks: []statecheck.StateCheck{
+				statecheck.ExpectSensitiveValue(
+					"k3s_server.main",
+					tfjsonpath.New("token"),
+				),
+			},
+		},
+			{
+				PreConfig: func() {
+
+					client, err := inputs.ServerSshClient(t, 4)
+					if err != nil {
+						t.Errorf("Could not create ssh client: %v", err.Error())
+					}
+
+					jres, err := client.Run("sudo k3s kubectl version -o json")
+					if err != nil {
+						t.Errorf("Could not run kubectl command: %v", err.Error())
+					}
+
+					var kversion map[string]any
+					if err := json.Unmarshal([]byte(jres[0]), &kversion); err != nil {
+						t.Fatal(err.Error())
+					}
+					serverVersion, ok := kversion["serverVersion"].(map[string]interface{})
+					if !ok {
+						t.Fatalf("serverVersion is not a map[string]interface{}")
+					}
+					gitVersion, ok := serverVersion["gitVersion"].(string)
+					if !ok {
+						t.Fatalf("gitVersion is not a string")
+					}
+					if gitVersion != "v1.32.7+k3s1" {
+						t.Errorf("Wrong k3s version, expected 'v1.32.7+k3s1', got '%s'", gitVersion)
+					}
+
+				},
+				Config:   providerConfig,
+				PlanOnly: true,
+				ConfigVariables: map[string]config.Variable{
+					"host":        config.StringVariable(inputs.Nodes.Server[4]),
+					"user":        config.StringVariable(inputs.User),
+					"private_key": config.StringVariable(inputs.SshKey),
+				},
+				ExpectNonEmptyPlan: false,
+			}},
 	})
 }
 

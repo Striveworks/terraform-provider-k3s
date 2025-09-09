@@ -31,29 +31,21 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 }
 
 type StandupInputs struct {
-	Nodes  []string `json:"nodes"`
-	SshKey string   `json:"ssh_key"`
-	User   string   `json:"user"`
-}
-
-func (s StandupInputs) AgentTests() StandupInputs {
-	return StandupInputs{
-		s.Nodes[0:3],
-		s.SshKey,
-		s.User,
-	}
-}
-
-func (s StandupInputs) ServerTests() StandupInputs {
-	return StandupInputs{
-		s.Nodes[3:len(s.Nodes)],
-		s.SshKey,
-		s.User,
-	}
+	Nodes struct {
+		Agent  []string `json:"agent"`
+		Server []string `json:"server"`
+	} `json:"nodes"`
+	SshKey string `json:"ssh_key"`
+	User   string `json:"user"`
 }
 
 func LoadInputs(f string) (StandupInputs, error) {
 	var output StandupInputs
+
+	if f == "" {
+		f = "../../_vars.test.auto.tfvars.json"
+	}
+
 	file, err := os.Open(f)
 	if err != nil {
 		return output, err
@@ -68,8 +60,12 @@ func LoadInputs(f string) (StandupInputs, error) {
 	return output, err
 }
 
-func (s *StandupInputs) SshClient(t *testing.T, index uint) (ssh_client.SSHClient, error) {
-	return ssh_client.NewSSHClient(t.Context(), s.Nodes[index], 22, s.User, s.SshKey, "")
+func (s *StandupInputs) AgentSshClient(t *testing.T, index uint) (ssh_client.SSHClient, error) {
+	return ssh_client.NewSSHClient(t.Context(), s.Nodes.Agent[index], 22, s.User, s.SshKey, "")
+}
+
+func (s *StandupInputs) ServerSshClient(t *testing.T, index uint) (ssh_client.SSHClient, error) {
+	return ssh_client.NewSSHClient(t.Context(), s.Nodes.Server[index], 22, s.User, s.SshKey, "")
 }
 
 func Render(raw string, args map[string]string) (string, error) {

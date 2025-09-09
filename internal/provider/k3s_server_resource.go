@@ -108,6 +108,7 @@ func (s *K3sServerResource) Configure(ctx context.Context, req resource.Configur
 		resp.Diagnostics.AddError("Provider error", "Could not convert provider data into version")
 		return
 	}
+
 	if provider.Version != "" {
 		s.version = &provider.Version
 	}
@@ -122,6 +123,8 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	data.SetVersion(s.version)
 
 	auth := handlers.NewNodeAuth(ctx, data.Auth)
 	server, err := data.ToServer(ctx)
@@ -176,6 +179,7 @@ func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	data.SetVersion(s.version)
 
 	auth := handlers.NewNodeAuth(ctx, data.Auth)
 	server, err := data.ToServer(ctx)
@@ -200,6 +204,9 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+
+	data.SetVersion(s.version)
+	state.SetVersion(s.version)
 
 	if resp.Diagnostics.HasError() {
 		return

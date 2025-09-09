@@ -211,6 +211,7 @@ func (s *server) Install(client ssh_client.SSHClient) (err error) {
 		flags = append(flags, fmt.Sprintf("K3S_TOKEN=%s", s.token))
 	}
 
+	// Did version get set?
 	if s.version != "" {
 		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION=\"%s\"", s.version))
 	}
@@ -314,7 +315,6 @@ func (s *server) Update(client ssh_client.SSHClient) error {
 }
 
 func (s *server) Resync(client ssh_client.SSHClient) (err error) {
-
 	if s.token == "" {
 		s.token, err = s.getToken(client)
 		if err != nil {

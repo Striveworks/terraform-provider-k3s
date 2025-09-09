@@ -21,14 +21,10 @@ module "labels" {
 
 // Resources
 
-resource "tls_private_key" "ssh_keys" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
 
 resource "openstack_compute_keypair_v2" "keypair" {
   name       = "${module.labels.id}-keypair"
-  public_key = tls_private_key.ssh_keys.public_key_openssh
+  public_key = var.ssh_keys.public_key_openssh
 }
 
 data "openstack_networking_network_v2" "float_ip_network" {
