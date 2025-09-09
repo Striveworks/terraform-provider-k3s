@@ -69,8 +69,8 @@ func (p *K3sProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *
 // Configure prepares a HashiCups API client for data sources and resources.
 func (p *K3sProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var config k3sProviderModel
-	diags := req.Config.Get(ctx, &config)
-	resp.Diagnostics.Append(diags...)
+
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 
 	if resp.Diagnostics.HasError() {
 		return
@@ -99,14 +99,12 @@ func (p *K3sProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		version = config.Version.ValueString()
 	}
 
-	p.Version = version
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	resp.ResourceData = p
-	resp.DataSourceData = p
+	resp.ResourceData = &K3sProvider{Version: version}
+	resp.DataSourceData = &K3sProvider{Version: version}
 }
 
 // DataSources defines the data sources implemented in the provider.

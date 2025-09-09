@@ -13,6 +13,12 @@ provider "openstack" {
   cloud = "terraform-k3s-provider"
 }
 
+resource "tls_private_key" "ssh_keys" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+
 // Namings
 module "labels" {
   source  = "cloudposse/label/null"
@@ -55,29 +61,44 @@ variable "image_id" {
 
 // Resources
 
-module "infra" {
+module "server_tests" {
   source = "./modules/openstack-backend"
 
-  name              = "ha"
+  name              = "server-test"
   user              = var.user
   network_id        = var.network_id
   flavor            = var.flavor
   availability_zone = var.availability_zone
   image_id          = var.image_id
-  # server: Nodes 0-4
-  # agent: Nodes 4-8
-  nodes = 8
+  ssh_keys          = tls_private_key.ssh_keys
+  nodes             = 8
+}
+
+module "agent_tests" {
+  source = "./modules/openstack-backend"
+
+  name              = "agent-test"
+  user              = var.user
+  network_id        = var.network_id
+  flavor            = var.flavor
+  availability_zone = var.availability_zone
+  image_id          = var.image_id
+  ssh_keys          = tls_private_key.ssh_keys
+  nodes             = 8
 }
 
 // Outputs
 
 output "ssh_key" {
-  value     = module.infra.ssh_key
+  value     = tls_private_key.ssh_keys.private_key_openssh
   sensitive = true
 }
 
 output "nodes" {
-  value = module.infra.nodes
+  value = {
+    server = module.server_tests.nodes
+    agent  = module.agent_tests.nodes
+  }
 }
 
 output "user" {
@@ -86,7 +107,7 @@ output "user" {
 }
 
 resource "local_sensitive_file" "kubeconfig" {
-  content         = module.infra.ssh_key
+  content         = tls_private_key.ssh_keys.private_key_openssh
   filename        = "key.pem"
   file_permission = "0600"
 }

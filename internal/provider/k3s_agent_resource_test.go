@@ -21,7 +21,6 @@ func TestAccK3sAgentResource(t *testing.T) {
 	if err != nil {
 		t.Errorf("%v", err.Error())
 	}
-	inputs = inputs.AgentTests()
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
@@ -29,8 +28,8 @@ func TestAccK3sAgentResource(t *testing.T) {
 				ConfigFile: K3sAgentStaticFile,
 				Config:     providerConfig,
 				ConfigVariables: map[string]config.Variable{
-					"server_host": config.StringVariable(inputs.Nodes[0]),
-					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[1])),
+					"server_host": config.StringVariable(inputs.Nodes.Server[0]),
+					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes.Agent[0])),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 				},
@@ -49,7 +48,7 @@ func TestAccK3sAgentResource(t *testing.T) {
 			{
 				PreConfig: func() {
 
-					client, err := inputs.SshClient(t, 0)
+					client, err := inputs.ServerSshClient(t, 0)
 					if err != nil {
 						t.Errorf("Could not create ssh client: %v", err.Error())
 					}
@@ -75,8 +74,8 @@ func TestAccK3sAgentResource(t *testing.T) {
 				PlanOnly:           true,
 				ConfigFile:         K3sAgentStaticFile,
 				ConfigVariables: map[string]config.Variable{
-					"server_host": config.StringVariable(inputs.Nodes[0]),
-					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes[1]), config.StringVariable(inputs.Nodes[2])),
+					"server_host": config.StringVariable(inputs.Nodes.Server[0]),
+					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes.Agent[1]), config.StringVariable(inputs.Nodes.Agent[2])),
 					"user":        config.StringVariable(inputs.User),
 					"private_key": config.StringVariable(inputs.SshKey),
 				},
