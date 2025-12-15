@@ -12,7 +12,7 @@ jobs:
     steps:
       # NOTE: When TSCCR updates the GitHub action version, update the template workflow file to avoid drift:
       # https://github.com/hashicorp/terraform-devex-repos/blob/main/modules/repo/workflows/lock.tftpl
-      - uses: dessant/lock-threads@v5
+      - uses: dessant/lock-threads@v6
         with:
           github-token: ${{ github.token }}
           issue-inactive-days: "30"
