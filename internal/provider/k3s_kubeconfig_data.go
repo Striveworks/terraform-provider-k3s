@@ -60,6 +60,10 @@ func (k *K3sKubeConfigData) Schema(_ context.Context, req datasource.SchemaReque
 				Optional:            true,
 				MarkdownDescription: "Override the api server's hostname",
 			},
+			"k3s_url": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "K3S_URL variable",
+			},
 		},
 	}
 }

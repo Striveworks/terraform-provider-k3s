@@ -42,7 +42,7 @@ install: build ## Install locally the plugin
 
 .PHONY: lint
 lint: ## Lints the entire repo
-	golangci-lint run
+	docker run -t --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.8.0 golangci-lint run
 
 .PHONY: generate
 generate: ## Generates plugin docs. WARNING Only target requiring terraform and not opentofu
