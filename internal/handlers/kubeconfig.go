@@ -14,6 +14,7 @@ type K3sKubeConfig struct {
 	ClusterAuth types.Object `tfsdk:"cluster_auth"`
 	KubeConfig  types.String `tfsdk:"kubeconfig"`
 	Hostname    types.String `tfsdk:"hostname"`
+	K3sUrl      types.String `tfsdk:"k3s_url"`
 	AllowEmpty  types.Bool   `tfsdk:"allow_empty"`
 }
 
@@ -63,6 +64,7 @@ func (s *K3sKubeConfig) Read(ctx context.Context, auth TKubeConfigRead, server T
 		clusterAuth.UpdateHost(s.Hostname.ValueString())
 	}
 
+	s.K3sUrl = clusterAuth.Server
 	s.Auth = auth.ToObject(ctx)
 	s.ClusterAuth = clusterAuth.ToObject(ctx)
 	s.KubeConfig = types.StringValue(clusterAuth.KubeConfig())

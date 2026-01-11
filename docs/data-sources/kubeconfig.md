@@ -71,6 +71,7 @@ output "kubeconfig" {
 ### Read-Only
 
 - `cluster_auth` (Attributes) Cluster auth objects (see [below for nested schema](#nestedatt--cluster_auth))
+- `k3s_url` (String) K3S_URL variable
 - `kubeconfig` (String, Sensitive) Output of the kubeconfig from a k3s_server resource
 
 <a id="nestedatt--auth"></a>

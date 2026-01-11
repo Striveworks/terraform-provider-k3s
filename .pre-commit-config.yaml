@@ -8,13 +8,8 @@ repos:
       - id: trailing-whitespace
         exclude: docs/
       - id: check-merge-conflict
-  - repo: local
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.8.0 # Use the latest version
     hooks:
       - id: golangci-lint
-        name: GolangCI-Lint
-        entry: golangci-lint run -c .golangci.yml --fix
-        pass_filenames: false # needs to run on entire dir
-        language: system
-        types: [go]
-        files: \.go$
-        verbose: true
+        args: [--fix]
