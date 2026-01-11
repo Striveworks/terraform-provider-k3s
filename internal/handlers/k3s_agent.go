@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"striveworks.us/terraform-provider-k3s/internal/k3s"
@@ -15,6 +16,7 @@ type AgentClientModel struct {
 	Server types.String `tfsdk:"server"`
 	BinDir types.String `tfsdk:"bin_dir"`
 	// Configs
+	Env            types.Map    `tfsdk:"env"`
 	KubeConfig     types.String `tfsdk:"kubeconfig"`
 	K3sRegistry    types.String `tfsdk:"registry"`
 	K3sConfig      types.String `tfsdk:"config"`
@@ -27,8 +29,16 @@ type AgentClientModel struct {
 	version string
 }
 
-func (a *AgentClientModel) ToAgent(ctx context.Context) (k3s.Agent, error) {
-	return k3s.NewK3sAgentComponent(
+func (a *AgentClientModel) ToAgent(ctx context.Context) (k3s.Agent, diag.Diagnostics) {
+	env := make(map[string]string)
+	if !a.Env.IsNull() {
+		if d := a.Env.ElementsAs(ctx, &env, false); d.HasError() {
+			return nil, d
+		}
+	}
+
+	diags := diag.Diagnostics{}
+	agent, err := k3s.NewK3sAgentComponent(
 		ctx,
 		a.K3sConfig.ValueString(),
 		a.K3sRegistry.ValueString(),
@@ -36,7 +46,12 @@ func (a *AgentClientModel) ToAgent(ctx context.Context) (k3s.Agent, error) {
 		a.Token.ValueString(),
 		a.Server.ValueString(),
 		a.BinDir.ValueString(),
+		env,
 	)
+	if err != nil {
+		diags.AddError("creating k3s agent", err.Error())
+	}
+	return agent, diags
 }
 
 // Hides version so terraform doesn't expose it on the model.

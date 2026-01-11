@@ -178,6 +178,7 @@ output "jwks" {
 
 - `bin_dir` (String) Value of a path used to put the k3s binary
 - `config` (String) K3s server config
+- `env` (Map of String, Sensitive) Extra environment variables to pass to the process
 - `highly_available` (Attributes) Run server node in highly available mode (see [below for nested schema](#nestedatt--highly_available))
 - `oidc` (Attributes) Support for including oidc provider in k3s (see [below for nested schema](#nestedatt--oidc))
 - `registry` (String) K3s server registry

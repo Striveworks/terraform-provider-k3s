@@ -74,6 +74,7 @@ resource "k3s_agent" "main" {
 - `allow_delete_err` (Boolean) If this is true, deleting the node using kubectl first will be allowed to error not stopping the k3s uninstall process
 - `bin_dir` (String) Value of a path used to put the k3s binary
 - `config` (String) K3s server config
+- `env` (Map of String, Sensitive) Extra environment variables to pass to the process
 - `registry` (String) K3s agent registry
 
 ### Read-Only

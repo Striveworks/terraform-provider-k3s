@@ -60,6 +60,7 @@ type server struct {
 	binDir     string
 	// A map of target filepath : content
 	extraFiles map[string]string
+	env        map[string]string
 }
 
 // KubeConfig implements K3sServer.
@@ -100,7 +101,7 @@ func NewK3ServerUninstall(ctx context.Context, binDir string) Server {
 }
 
 // New k3s ha server component meant to join a server that has already been initialized.
-func NewK3sServerComponent(ctx context.Context, config string, registry string, version string, binDir string) (Server, error) {
+func NewK3sServerComponent(ctx context.Context, config string, registry string, version string, binDir string, env map[string]string) (Server, error) {
 	cfg := make(map[any]any)
 	if err := yaml.Unmarshal([]byte(config), &cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %s", err.Error())
@@ -118,6 +119,7 @@ func NewK3sServerComponent(ctx context.Context, config string, registry string, 
 		version:    version,
 		binDir:     binDir,
 		extraFiles: make(map[string]string),
+		env:        env,
 	}, nil
 }
 
@@ -214,6 +216,12 @@ func (s *server) Install(client ssh_client.SSHClient) (err error) {
 	// Did version get set?
 	if s.version != "" {
 		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION=\"%s\"", s.version))
+	}
+
+	if s.env != nil {
+		for k, v := range s.env {
+			flags = append(flags, fmt.Sprintf("%s=\"%s\"", k, v))
+		}
 	}
 
 	commands := []string{

@@ -40,6 +40,7 @@ type agent struct {
 	token    string
 	server   string
 	registry map[any]any
+	env      map[string]string
 }
 
 // Token implements K3sAgent.
@@ -56,6 +57,7 @@ func NewK3sAgentComponent(
 	token string,
 	server string,
 	binDir string,
+	env map[string]string,
 ) (Agent, error) {
 	cfg := make(map[any]any)
 	if err := yaml.Unmarshal([]byte(config), &cfg); err != nil {
@@ -67,7 +69,7 @@ func NewK3sAgentComponent(
 		return nil, fmt.Errorf("parsing registry: %s", err.Error())
 	}
 
-	return &agent{ctx: ctx, config: cfg, registry: reg, version: version, binDir: binDir, token: token, server: server}, nil
+	return &agent{ctx: ctx, config: cfg, registry: reg, version: version, binDir: binDir, token: token, server: server, env: env}, nil
 }
 
 // Easy constructor for using just uninstall.
@@ -99,6 +101,12 @@ func (a *agent) Install(client ssh_client.SSHClient) error {
 	}
 	if a.version != "" {
 		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION='%s'", a.version))
+	}
+
+	if a.env != nil {
+		for k, v := range a.env {
+			flags = append(flags, fmt.Sprintf("%s=\"%s\"", k, v))
+		}
 	}
 
 	commands := []string{
