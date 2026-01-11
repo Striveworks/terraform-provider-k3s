@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"striveworks.us/terraform-provider-k3s/internal/k3s"
@@ -15,6 +16,7 @@ type ServerClientModel struct {
 	BinDir      types.String `tfsdk:"bin_dir"`
 	K3sConfig   types.String `tfsdk:"config"`
 	K3sRegistry types.String `tfsdk:"registry"`
+	Env         types.Map    `tfsdk:"env"`
 	// Highly Available config
 	HaConfig types.Object `tfsdk:"highly_available"`
 	// OIDC Support
@@ -38,17 +40,27 @@ func (s *ServerClientModel) SetVersion(version *string) {
 	}
 }
 
-func (s *ServerClientModel) ToServer(ctx context.Context) (k3s.Server, error) {
+func (s *ServerClientModel) ToServer(ctx context.Context) (k3s.Server, diag.Diagnostics) {
+
+	env := make(map[string]string)
+	if !s.Env.IsNull() {
+		if d := s.Env.ElementsAs(ctx, &env, false); d.HasError() {
+			return nil, d
+		}
+	}
+
 	server, err := k3s.NewK3sServerComponent(
 		ctx,
 		s.K3sConfig.ValueString(),
 		s.K3sRegistry.ValueString(),
 		s.version,
 		s.BinDir.ValueString(),
+		env,
 	)
-
+	diags := diag.Diagnostics{}
 	if err != nil {
-		return nil, err
+		diags.AddError("creating k3s server", err.Error())
+		return nil, diags
 	}
 
 	if !s.HaConfig.IsNull() {
@@ -63,7 +75,7 @@ func (s *ServerClientModel) ToServer(ctx context.Context) (k3s.Server, error) {
 		s.oidcConfig.configureServer(server)
 	}
 
-	return server, nil
+	return server, diags
 }
 
 type TServerSSH interface {

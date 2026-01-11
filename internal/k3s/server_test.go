@@ -19,6 +19,7 @@ write-kubeconfig-mode: "0700"`,
     "endpoint": ["1234"]`,
 		"",
 		"",
+		make(map[string]string),
 	)
 	if err != nil {
 		t.Fatalf("Expected nil err but found: %v", err.Error())

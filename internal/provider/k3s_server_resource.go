@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"striveworks.us/terraform-provider-k3s/internal/handlers"
 )
@@ -46,6 +47,12 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 			"config": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "K3s server config",
+			},
+			"env": schema.MapAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Extra environment variables to pass to the process",
+				ElementType:         types.StringType,
 			},
 			"registry": schema.StringAttribute{
 				Optional:            true,
@@ -127,9 +134,9 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	data.SetVersion(s.version)
 
 	auth := handlers.NewNodeAuth(ctx, data.Auth)
-	server, err := data.ToServer(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError("creating k3s server", err.Error())
+	server, diags := data.ToServer(ctx)
+	if diags.HasError() {
+		resp.Diagnostics.Append(diags...)
 		return
 	}
 
@@ -153,9 +160,9 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 	}
 
 	auth := handlers.NewNodeAuth(ctx, data.Auth)
-	server, err := data.ToServer(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError("creating k3s server", err.Error())
+	server, diags := data.ToServer(ctx)
+	if diags.HasError() {
+		resp.Diagnostics.Append(diags...)
 		return
 	}
 
@@ -182,9 +189,9 @@ func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 	data.SetVersion(s.version)
 
 	auth := handlers.NewNodeAuth(ctx, data.Auth)
-	server, err := data.ToServer(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError("creating k3s server", err.Error())
+	server, diags := data.ToServer(ctx)
+	if diags.HasError() {
+		resp.Diagnostics.Append(diags...)
 		return
 	}
 
@@ -213,9 +220,9 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 
 	auth := handlers.NewNodeAuth(ctx, data.Auth)
-	server, err := data.ToServer(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError("creating k3s server", err.Error())
+	server, diags := data.ToServer(ctx)
+	if diags.HasError() {
+		resp.Diagnostics.Append(diags...)
 		return
 	}
 

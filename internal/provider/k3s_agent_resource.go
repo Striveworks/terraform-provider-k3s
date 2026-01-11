@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"striveworks.us/terraform-provider-k3s/internal/handlers"
 	"striveworks.us/terraform-provider-k3s/internal/k3s"
@@ -37,6 +38,12 @@ func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaReques
 			// Auth
 			"auth": handlers.NodeAuth{}.Schema(),
 			// Config
+			"env": schema.MapAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Extra environment variables to pass to the process",
+				ElementType:         types.StringType,
+			},
 			"config": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "K3s server config",
@@ -115,9 +122,9 @@ func (k *K3sAgentResource) Create(ctx context.Context, req resource.CreateReques
 	data.SetVersion(k.version)
 
 	auth := handlers.NewNodeAuth(ctx, data.Auth)
-	agent, err := data.ToAgent(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError("creating k3s agent", err.Error())
+	agent, diags := data.ToAgent(ctx)
+	if diags.HasError() {
+		resp.Diagnostics.Append(diags...)
 		return
 	}
 
@@ -168,9 +175,9 @@ func (k *K3sAgentResource) Read(ctx context.Context, req resource.ReadRequest, r
 	}
 
 	auth := handlers.NewNodeAuth(ctx, data.Auth)
-	agent, err := data.ToAgent(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError("building k3s agent", err.Error())
+	agent, diags := data.ToAgent(ctx)
+	if diags.HasError() {
+		resp.Diagnostics.Append(diags...)
 		return
 	}
 
@@ -195,12 +202,11 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 	}
 
 	auth := handlers.NewNodeAuth(ctx, data.Auth)
-	agent, err := data.ToAgent(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError("building k3s agent", err.Error())
+	agent, diags := data.ToAgent(ctx)
+	if diags.HasError() {
+		resp.Diagnostics.Append(diags...)
 		return
 	}
-
 	if err := state.Update(ctx, data, &auth, agent); err != nil {
 		resp.Diagnostics.AddError("updating k3s agent", err.Error())
 		return

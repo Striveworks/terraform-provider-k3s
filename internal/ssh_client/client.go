@@ -219,7 +219,8 @@ func (s *sshClient) streamSingle(command string) error {
 
 	// Wait for the command to finish
 	if err := session.Wait(); err != nil {
-		return fmt.Errorf("cannot run cmd '%s': %s", command, err)
+		tflog.Error(s.ctx, fmt.Sprintf("cannot run cmd '%s': %s", command, err))
+		return fmt.Errorf("cannot run cmd, see error logs") // Mask error command to prevent secret leakage
 	}
 
 	return nil
