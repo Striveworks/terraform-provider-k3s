@@ -3,7 +3,7 @@ module striveworks.us/terraform-provider-k3s
 go 1.24.2
 
 require (
-	github.com/hashicorp/terraform-plugin-framework v1.15.1
+	github.com/hashicorp/terraform-plugin-framework v1.17.0
 	github.com/hashicorp/terraform-plugin-log v0.10.0
 	github.com/joho/godotenv v1.5.1
 	golang.org/x/crypto v0.47.0
