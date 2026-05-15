@@ -38,3 +38,4 @@ website/vendor
 .modcache
 .bincache
 *tfvars.json
+terraform-provider-k3s

@@ -1,149 +1,241 @@
-package provider_test
+package provider
 
 import (
-	"encoding/json"
-	"os"
-	"regexp"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
-	"github.com/hashicorp/terraform-plugin-testing/config"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
-var K3sAgentStaticFile = config.StaticFile("../../examples/resources/k3s_agent/resource.tf")
-
 func TestAccK3sAgentResource(t *testing.T) {
+	skipUnlessAcc(t)
 
-	inputs, err := LoadInputs(os.Getenv("TEST_JSON_PATH"))
+	prefix := fmt.Sprintf("agent-%d", time.Now().UnixNano())
+	serverNames := []string{prefix + "-server", prefix + "-worker"}
+	h, err := NewDockerComposeTestHarness(t, serverNames)
 	if err != nil {
-		t.Errorf("%v", err.Error())
+		t.Fatalf("Failed to create test harness: %s", err)
 	}
+	defer h.Teardown()
+
+	if err := h.Setup(); err != nil {
+		t.Fatalf("Failed to set up test environment: %s", err)
+	}
+
+	server, err := h.GetServer(serverNames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := h.GetServer(serverNames[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	k3sAgent := fmt.Sprintf(`
+provider "k3s" {}
+
+resource k3s_server "main" {
+	auth = {
+		user                         = "root"
+		host                         = "localhost"
+		password                     = "rootpassword"
+		port                         = %d
+		ignore_host_key_verification = true
+	}
+
+	config = <<-YAML
+	disable-agent: true
+	disable:
+	  - traefik
+	  - servicelb
+	  - metrics-server
+	snapshotter: native
+	write-kubeconfig-mode: "0600"
+	tls-san:
+	  - localhost
+	  - %s
+	YAML
+}
+
+resource k3s_agent "main" {
+	auth = {
+		user                         = "root"
+		host                         = "localhost"
+		password                     = "rootpassword"
+		port                         = %d
+		ignore_host_key_verification = true
+	}
+
+	server = "https://%s:6443"
+	token  = k3s_server.main.token
+
+	config = <<-YAML
+	snapshotter: native
+	node-label:
+	  - acc-role=agent
+	YAML
+}
+`, server.Port, server.ContainerIP, agent.Port, server.ContainerIP)
+
+	updatedK3sAgent := fmt.Sprintf(`
+provider "k3s" {}
+
+resource k3s_server "main" {
+	auth = {
+		user                         = "root"
+		host                         = "localhost"
+		password                     = "rootpassword"
+		port                         = %d
+		ignore_host_key_verification = true
+	}
+
+	config = <<-YAML
+	disable-agent: true
+	disable:
+	  - traefik
+	  - servicelb
+	  - metrics-server
+	snapshotter: native
+	write-kubeconfig-mode: "0600"
+	tls-san:
+	  - localhost
+	  - %s
+	YAML
+}
+
+resource k3s_agent "main" {
+	auth = {
+		user                         = "root"
+		host                         = "localhost"
+		password                     = "rootpassword"
+		port                         = %d
+		ignore_host_key_verification = true
+	}
+
+	server = "https://%s:6443"
+	token  = k3s_server.main.token
+
+	config = <<-YAML
+	snapshotter: native
+	node-label:
+	  - acc-role=agent-updated
+	YAML
+}
+`, server.Port, server.ContainerIP, agent.Port, server.ContainerIP)
+
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				ConfigFile: K3sAgentStaticFile,
-				Config:     providerConfig,
-				ConfigVariables: map[string]config.Variable{
-					"server_host": config.StringVariable(inputs.Nodes.Server[0]),
-					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes.Agent[0])),
-					"user":        config.StringVariable(inputs.User),
-					"private_key": config.StringVariable(inputs.SshKey),
-				},
+				Config: k3sAgent,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("k3s_server.main", "active", "true"),
+					resource.TestCheckResourceAttr("k3s_agent.main", "active", "true"),
+					resource.TestCheckResourceAttr("k3s_agent.main", "server", fmt.Sprintf("https://%s:6443", server.ContainerIP)),
+					resource.TestCheckResourceAttrSet("k3s_agent.main", "token"),
+					resource.TestCheckResourceAttrSet("k3s_agent.main", "version"),
+					checkK3sServerInstalled(server),
+					checkK3sAgentInstalled(agent, "acc-role=agent"),
+					checkK3sAgentJoined(server, agent),
+				),
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectSensitiveValue(
 						"k3s_server.main",
 						tfjsonpath.New("token"),
 					),
-					statecheck.ExpectKnownValue(
-						"k3s_agent.main[0]",
-						tfjsonpath.New("active"),
-						knownvalue.NotNull(),
+					statecheck.ExpectSensitiveValue(
+						"k3s_agent.main",
+						tfjsonpath.New("token"),
 					),
 				},
 			},
 			{
-				PreConfig: func() {
-
-					client, err := inputs.ServerSshClient(t, 0)
-					if err != nil {
-						t.Errorf("Could not create ssh client: %v", err.Error())
-					}
-
-					jres, err := client.Run("sudo k3s kubectl get nodes -ojson")
-					raw, _ := client.Run("sudo k3s kubectl get nodes")
-					if err != nil {
-						t.Errorf("Could not run kubectl command: %v", err.Error())
-					}
-
-					var nodes map[string]any
-					if err := json.Unmarshal([]byte(jres[0]), &nodes); err != nil {
-						t.Fatal(err.Error())
-					}
-					nc, _ := nodes["items"].([]any)
-					if len(nc) != 2 {
-						t.Errorf("Wrong count of nodes expected. Expected 2, got %s", raw[0])
-					}
-
-				},
-				Config:             providerConfig,
-				ExpectNonEmptyPlan: true,
-				PlanOnly:           true,
-				ConfigFile:         K3sAgentStaticFile,
-				ConfigVariables: map[string]config.Variable{
-					"server_host": config.StringVariable(inputs.Nodes.Server[0]),
-					"agent_hosts": config.ListVariable(config.StringVariable(inputs.Nodes.Agent[1]), config.StringVariable(inputs.Nodes.Agent[2])),
-					"user":        config.StringVariable(inputs.User),
-					"private_key": config.StringVariable(inputs.SshKey),
-				},
+				Config: updatedK3sAgent,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("k3s_server.main", "active", "true"),
+					resource.TestCheckResourceAttr("k3s_agent.main", "active", "true"),
+					resource.TestCheckResourceAttrSet("k3s_agent.main", "version"),
+					checkK3sAgentInstalled(agent, "acc-role=agent-updated"),
+					checkK3sAgentJoined(server, agent),
+				),
 			},
 		},
 	})
 }
 
-func TestK3sAgentValidateResource(t *testing.T) {
-	t.Parallel()
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		IsUnitTest:               true,
-		Steps: []resource.TestStep{{
-			PlanOnly:           true,
-			ExpectNonEmptyPlan: true,
-			Config: providerConfig + `
-			resource "k3s_agent" "main" {
-				auth = {
-				host	   = "192.168.1.2"
-				user	   = "ubuntu"
-				password   = "abc123"
-				}
-				kubeconfig = "1asdsad"
-				server	   = "192.168.1.1"
-				token      = "abc123"
-			}`,
-		}},
-	})
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		IsUnitTest:               true,
-		Steps: []resource.TestStep{{
-			PlanOnly:           true,
-			ExpectNonEmptyPlan: true,
-			Config: providerConfig + `
-			resource "k3s_agent" "main" {
-				auth = {
-				host	    = "192.168.1.2"
-				user	    = "ubuntu"
-				private_key = "abc123"
+func checkK3sAgentInstalled(agent *ServerInfo, label string) resource.TestCheckFunc {
+	return func(_ *terraform.State) error {
+		checks := []struct {
+			name    string
+			command string
+		}{
+			{
+				name:    "install script was synced",
+				command: "sudo test -f /usr/local/bin/k3s-install.sh",
+			},
+			{
+				name:    "k3s binary is installed",
+				command: "sudo test -x /usr/local/bin/k3s",
+			},
+			{
+				name:    "config file was written",
+				command: fmt.Sprintf("sudo grep -Fq '%s' /etc/rancher/k3s/config.yaml", label),
+			},
+			{
+				name:    "systemd service was generated",
+				command: "sudo test -f /etc/systemd/system/k3s-agent.service",
+			},
+			{
+				name:    "k3s-agent service is active",
+				command: "sudo systemctl is-active --quiet k3s-agent",
+			},
+			{
+				name:    "agent server url was written",
+				command: "sudo grep -q '^K3S_URL=' /etc/systemd/system/k3s-agent.service.env",
+			},
+			{
+				name:    "agent token was written",
+				command: "sudo grep -q '^K3S_TOKEN=' /etc/systemd/system/k3s-agent.service.env",
+			},
 		}
-				server      = "192.168.1.1"
-				token 	    = "abc123"
-				kubeconfig  = "1asdsad"
-			}`,
-		}},
-	})
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		IsUnitTest:               true,
-		Steps: []resource.TestStep{{
-			PlanOnly:    true,
-			ExpectError: regexp.MustCompile(`(.*)(.*)`),
-			Config: providerConfig + `
-			resource "k3s_agent" "main" {
-				auth = {
-				host	    = "192.168.1.2"
-				user	    = "ubuntu"
-				private_key = "abc123"
-				password    = "abc123"
-				}
-				server      = "192.168.1.1"
-				token 	    = "abc123"
 
-				kubeconfig  = "1asdsad"
-			}`,
-		}},
-	})
+		for _, check := range checks {
+			if _, err := agent.SSHClient.Run(check.command); err != nil {
+				return fmt.Errorf("%s: %w", check.name, err)
+			}
+		}
 
+		return nil
+	}
+}
+
+func checkK3sAgentJoined(server *ServerInfo, agent *ServerInfo) resource.TestCheckFunc {
+	return func(_ *terraform.State) error {
+		hostname, err := agent.SSHClient.Hostname()
+		if err != nil {
+			return fmt.Errorf("reading agent hostname: %w", err)
+		}
+		hostname = strings.TrimSpace(hostname)
+
+		if err := waitForSSHCommand(server, "sudo k3s kubectl wait --for=condition=Ready nodes --all --timeout=180s", 5*time.Minute); err != nil {
+			return err
+		}
+
+		nodeCommand := fmt.Sprintf("sudo k3s kubectl get node %s", hostname)
+		if err := waitForSSHCommand(server, nodeCommand, 2*time.Minute); err != nil {
+			return fmt.Errorf("waiting for agent node %q: %w", hostname, err)
+		}
+
+		countCommand := `test "$(sudo k3s kubectl get nodes --no-headers | wc -l | tr -d ' ')" = "1"`
+		if err := waitForSSHCommand(server, countCommand, 2*time.Minute); err != nil {
+			return fmt.Errorf("waiting for single joined agent node: %w", err)
+		}
+
+		return nil
+	}
 }

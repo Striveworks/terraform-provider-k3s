@@ -3,12 +3,12 @@
 page_title: "k3s_kubeconfig Data Source - k3s"
 subcategory: ""
 description: |-
-  A utility for reading and manipulating kubeconfig. Common use case would be to nicely extract the auth credentials or overridding the server url for a load balancer url or dns name.
+  A utility for reading and manipulating kubeconfig. Common use case would be to extract the auth credentials or override the server URL for a load balancer URL or DNS name.
 ---
 
 # k3s_kubeconfig (Data Source)
 
-A utility for reading and manipulating kubeconfig. Common use case would be to nicely extract the auth credentials or overridding the server url for a load balancer url or dns name.
+A utility for reading and manipulating kubeconfig. Common use case would be to extract the auth credentials or override the server URL for a load balancer URL or DNS name.
 
 ## Example Usage
 
@@ -24,6 +24,23 @@ variable "user" {
 variable "private_key" {
   type      = string
   sensitive = true
+  default   = null
+}
+
+variable "private_key_file" {
+  type      = string
+  sensitive = true
+  default   = null
+}
+
+variable "ssh_port" {
+  type    = number
+  default = 22
+}
+
+variable "kubeconfig_hostname" {
+  type    = string
+  default = "mylb-dns-name"
 }
 
 variable "config" {
@@ -33,26 +50,41 @@ variable "config" {
 
 resource "k3s_server" "main" {
   auth = {
-    host        = var.host
-    user        = var.user
-    private_key = var.private_key
+    host                         = var.host
+    user                         = var.user
+    port                         = var.ssh_port
+    private_key                  = var.private_key
+    private_key_file             = var.private_key_file
+    ignore_host_key_verification = true
   }
   config = var.config
 }
 
 data "k3s_kubeconfig" "kubeconfig" {
   auth = {
-    host        = var.host
-    user        = var.user
-    private_key = var.private_key
+    host                         = var.host
+    user                         = var.user
+    port                         = var.ssh_port
+    private_key                  = var.private_key
+    private_key_file             = var.private_key_file
+    ignore_host_key_verification = true
   }
-  hostname = "mylb-dns-name"
+  hostname = var.kubeconfig_hostname
 
   depends_on = [k3s_server.main]
 }
 
 output "kubeconfig" {
-  value = data.k3s_kubeconfig.kubeconfig
+  value     = data.k3s_kubeconfig.kubeconfig.kubeconfig
+  sensitive = true
+}
+
+output "k3s_url" {
+  value = data.k3s_kubeconfig.kubeconfig.k3s_url
+}
+
+output "cluster_auth_server" {
+  value = data.k3s_kubeconfig.kubeconfig.cluster_auth.server
 }
 ```
 
@@ -61,7 +93,7 @@ output "kubeconfig" {
 
 ### Required
 
-- `auth` (Attributes) Auth configuration for the node (see [below for nested schema](#nestedatt--auth))
+- `auth` (Attributes) SSH authentication config. At least one of password, private_key, or private_key_file must be provided. If multiple credential types are provided, each is added to the SSH auth methods. (see [below for nested schema](#nestedatt--auth))
 
 ### Optional
 
@@ -70,20 +102,25 @@ output "kubeconfig" {
 
 ### Read-Only
 
-- `cluster_auth` (Attributes) Cluster auth objects (see [below for nested schema](#nestedatt--cluster_auth))
+- `cluster_auth` (Attributes) Cluster authentication details for connecting to the K3s cluster. (see [below for nested schema](#nestedatt--cluster_auth))
 - `k3s_url` (String) K3S_URL variable
 - `kubeconfig` (String, Sensitive) Output of the kubeconfig from a k3s_server resource
 
 <a id="nestedatt--auth"></a>
 ### Nested Schema for `auth`
 
+Required:
+
+- `host` (String) Hostname or IP Address
+- `user` (String) SSH User
+
 Optional:
 
-- `host` (String) Hostname of the target server
-- `password` (String, Sensitive) Username of the target server
-- `port` (Number) Override default SSH port (22)
-- `private_key` (String, Sensitive) Private ssh key value to be used in place of a password
-- `user` (String) Username of the target server
+- `ignore_host_key_verification` (Boolean) Ignore host key verification. Defaults to false when omitted.
+- `password` (String, Sensitive) SSH Password
+- `port` (Number) SSH Port. Defaults to 22 when omitted.
+- `private_key` (String, Sensitive) Inline private key in PEM format
+- `private_key_file` (String, Sensitive) Path to pem file
 
 
 <a id="nestedatt--cluster_auth"></a>
@@ -91,7 +128,7 @@ Optional:
 
 Read-Only:
 
-- `certificate_authority_data` (String, Sensitive) Client CA, already base64 decoded
-- `client_certificate_data` (String, Sensitive) Client user certificate, already base64 decoded
-- `client_key_data` (String, Sensitive) Client user key, already base64 decoded
-- `server` (String) Apiserver address
+- `certificate_authority_data` (String, Sensitive) Base64 encoded certificate authority data for authenticating to the Kubernetes API server.
+- `client_certificate_data` (String, Sensitive) Base64 encoded client certificate data for authenticating to the Kubernetes API server.
+- `client_key_data` (String, Sensitive) Base64 encoded client key data for authenticating to the Kubernetes API server.
+- `server` (String) The URL of the Kubernetes API server endpoint.

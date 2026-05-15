@@ -8,128 +8,68 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/joho/godotenv"
-	"gopkg.in/yaml.v2"
+	"go.yaml.in/yaml/v2"
 	"k8s.io/client-go/tools/clientcmd"
-
+	"striveworks.us/terraform-provider-k3s/internal/schemas"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
-type ServerKubeconfig interface {
-	// Kubeconfig used for client access to the cluster
-	KubeConfig() string
+var _ K3sComponent = &Server{}
+
+type Server struct {
+	Config     string
+	Registry   string
+	Token      string
+	KubeConfig string
+	Version    string
+	BinDir     string
+	ExtraFiles map[string]string
+	Env        map[string]string
+
+	// Internal fields to check for
+	// correct formatting and config merging
+	config   map[any]any
+	registry map[any]any
 }
 
-type ServerOidc interface {
-	// Adds OIDC configuration
-	AddOidc(audience string, issuer string, private_key string, signing_key string)
-}
+func (s *Server) Validate(ctx context.Context) error {
 
-type ServerConfig interface {
-	// The k3s config
-	Config() map[any]any
-}
-
-type ServerRegistry interface {
-	// The k3s registry
-	Registry() map[any]any
-}
-
-type ServerHaMode interface {
-	// Adds highly avail config to the node
-	AddHA(cluster_init bool, token string, server string)
-}
-
-type Server interface {
-	Component
-	ServerKubeconfig
-	ServerOidc
-	ServerConfig
-	ServerHaMode
-	ServerRegistry
-}
-
-var _ Server = &server{}
-
-type server struct {
-	config     map[any]any
-	registry   map[any]any
-	token      string
-	kubeConfig string
-	version    string
-	ctx        context.Context
-	binDir     string
-	// A map of target filepath : content
-	extraFiles map[string]string
-	env        map[string]string
-}
-
-// KubeConfig implements K3sServer.
-func (s *server) KubeConfig() string {
-	return s.kubeConfig
-}
-
-// Token implements K3sServer.
-func (s *server) Token() string {
-	return s.token
-}
-
-// Token implements K3sServer.
-func (s *server) Config() map[any]any {
-	return s.config
-}
-
-// Token implements K3sServer.
-func (s *server) Registry() map[any]any {
-	return s.registry
-}
-
-func (s *server) AddHA(cluster_init bool, token string, server string) {
-	if cluster_init {
-		s.config["cluster-init"] = true
+	tflog.Debug(ctx, "Checking if Config is correctly yaml formatted")
+	s.config = make(map[any]any)
+	if err := yaml.Unmarshal([]byte(s.Config), &s.config); err != nil {
+		return fmt.Errorf("parsing config: %s", err.Error())
 	}
-	if token != "" {
-		s.token = token
+
+	s.registry = make(map[any]any)
+	if err := yaml.Unmarshal([]byte(s.Registry), &s.registry); err != nil {
+		return fmt.Errorf("parsing registry: %s", err.Error())
 	}
-	if server != "" {
-		s.config["server"] = server
+	if s.BinDir == "" {
+		s.BinDir = BIN_DIR
+	}
+
+	return nil
+}
+
+func (s *Server) WithHa(config schemas.HaConfig) {
+
+	s.config["cluster-init"] = config.ClusterInit.ValueBool()
+
+	if config.Token.ValueString() != "" {
+		s.Token = config.Token.ValueString()
+	}
+	if config.Server.ValueString() != "" {
+		s.config["server"] = config.Server.ValueString()
 	}
 }
 
-// Easy constructor for using just uninstall and resync.
-func NewK3ServerUninstall(ctx context.Context, binDir string) Server {
-	return &server{ctx: ctx, binDir: binDir}
-}
-
-// New k3s ha server component meant to join a server that has already been initialized.
-func NewK3sServerComponent(ctx context.Context, config string, registry string, version string, binDir string, env map[string]string) (Server, error) {
-	cfg := make(map[any]any)
-	if err := yaml.Unmarshal([]byte(config), &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config: %s", err.Error())
-	}
-
-	reg := make(map[any]any)
-	if err := yaml.Unmarshal([]byte(registry), &reg); err != nil {
-		return nil, fmt.Errorf("parsing registry: %s", err.Error())
-	}
-
-	return &server{
-		ctx:        ctx,
-		config:     cfg,
-		registry:   reg,
-		version:    version,
-		binDir:     binDir,
-		extraFiles: make(map[string]string),
-		env:        env,
-	}, nil
-}
-
-func (s *server) AddOidc(audience string, issuer string, pkcs8_key string, signing_key string) {
+func (s *Server) WithOidc(config schemas.OidcConfig) {
 	kube_api_server_args := []string{
-		fmt.Sprintf("api-audiences=%s", audience),
+		fmt.Sprintf("api-audiences=%s", config.Audience.ValueString()),
 		"service-account-key-file=/etc/rancher/k3s/tls/sa-signer-pkcs8.pub",
 		"service-account-key-file=/var/lib/rancher/k3s/server/tls/service.key",
 		"service-account-signing-key-file=/etc/rancher/k3s/tls/sa-signer.key",
-		fmt.Sprintf("service-account-issuer=%s", issuer),
+		fmt.Sprintf("service-account-issuer=%s", config.Issuer.ValueString()),
 		"service-account-issuer=k3s",
 	}
 
@@ -143,49 +83,42 @@ func (s *server) AddOidc(audience string, issuer string, pkcs8_key string, signi
 		s.config["kube-apiserver-arg"] = kube_api_server_args
 	}
 
-	s.addFile("/etc/rancher/k3s/tls/sa-signer-pkcs8.pub", pkcs8_key)
-	s.addFile("/etc/rancher/k3s/tls/sa-signer.key", signing_key)
-}
-
-func (s *server) addFile(path string, content string) {
-	s.extraFiles[path] = content
-}
-
-func (s *server) dataDir() string {
-	if dir, ok := s.config["data_dir"].(string); ok && dir != "" {
-		return dir
-	}
-	return DATA_DIR
+	s.addFile("/etc/rancher/k3s/tls/sa-signer-pkcs8.pub", config.SigningPKCS8.ValueString())
+	s.addFile("/etc/rancher/k3s/tls/sa-signer.key", config.SigningKey.ValueString())
 }
 
 // Preinstall implements K3sComponent.
-func (s *server) Preinstall(client ssh_client.SSHClient) error {
+func (s *Server) PreInstall(ctx context.Context, client ssh_client.SSHClient) error {
 	if err := client.WaitForReady(); err != nil {
 		return err
 	}
 
-	cfgCommands, err := configCommands(s.ctx, s.config)
+	cfgCommands, err := configCommands(ctx, s.config)
 	if err != nil {
 		return err
 	}
-	regCommands, err := registryCommands(s.ctx, s.registry)
+	regCommands, err := registryCommands(ctx, s.registry)
 	if err != nil {
 		return err
 	}
 
-	extraFileCommands := s.syncExtraFiles()
+	extraFileCommands := syncExtraFiles(s.ExtraFiles)
 
-	tflog.Debug(s.ctx, "Reading install script")
+	tflog.Debug(ctx, "Reading install script")
 	installContents, err := ReadInstallScript()
 	if err != nil {
 		return err
 	}
 
-	commands := append(WriteFileCommands(s.binDir+"/k3s-install.sh", installContents),
-		[]string{
-			fmt.Sprintf("sudo mkdir -p %s", s.dataDir()),
-			fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR),
-		}...)
+	commands := append(
+		WriteFileCommands(s.BinDir+"/k3s-install.sh", installContents),
+		fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR),
+		fmt.Sprintf("sudo mkdir -p %s", s.dataDir()),
+	)
+
+	if s.BinDir != BIN_DIR {
+		commands = append(commands, fmt.Sprintf("sudo mkdir -p %s", s.BinDir))
+	}
 
 	// Write config file
 	commands = append(commands, cfgCommands...)
@@ -201,152 +134,170 @@ func (s *server) Preinstall(client ssh_client.SSHClient) error {
 }
 
 // Install implements K3sComponent.
-func (s *server) Install(client ssh_client.SSHClient) (err error) {
-	flags := []string{
-		"INSTALL_K3S_SKIP_START=true",
-		fmt.Sprintf("BIN_DIR=%s", s.binDir),
-		fmt.Sprintf("INSTALL_K3S_EXEC='--config %s/config.yaml'", CONFIG_DIR),
-	}
-
-	// Join existing cluster as HA node
-	if s.token != "" {
-		flags = append(flags, fmt.Sprintf("K3S_TOKEN=%s", s.token))
-	}
-
-	// Did version get set?
-	if s.version != "" {
-		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION=\"%s\"", s.version))
-	}
-
-	if s.env != nil {
-		for k, v := range s.env {
-			flags = append(flags, fmt.Sprintf("%s=\"%s\"", k, v))
-		}
-	}
-
+func (s *Server) Install(ctx context.Context, client ssh_client.SSHClient) error {
 	commands := []string{
-		fmt.Sprintf("sudo %s bash %s/k3s-install.sh", strings.Join(flags, " "), s.binDir),
+		s.installCommand(),
 		"sudo systemctl daemon-reload",
 		"sudo systemctl start k3s",
 	}
 
-	if err = client.RunStream(commands); err != nil {
-		return
+	if err := client.RunStream(commands); err != nil {
+		return err
 	}
 
 	// If first node on HA, set token
-	if s.token == "" {
-		s.token, err = s.getToken(client)
+	if s.Token == "" {
+		token, err := s.getToken(client)
 		if err != nil {
-			return
+			return err
 		}
+		s.Token = token
+		tflog.MaskMessageStrings(ctx, s.Token)
 	}
 
 	// Retrieve kubeconfig
-	s.kubeConfig, err = s.getKubeConfig(client)
-
-	return err
-}
-
-// Uninstall implements K3sServer uninstall.
-func (s *server) Uninstall(client ssh_client.SSHClient, kubeconfig string, allowErr ...bool) error {
-	return client.RunStream([]string{
-		fmt.Sprintf("sudo bash %s/k3s-uninstall.sh", s.binDir),
-	})
-}
-
-func (s *server) Status(client ssh_client.SSHClient) (bool, error) {
-	status, err := systemdStatus("k3s", client)
+	kubeConfig, err := s.getKubeConfig(client)
 	if err != nil {
-		// Take error as false for status, which should be just as bad
-		tflog.Error(s.ctx, fmt.Sprintf("error fetching server status: %s", err.Error()))
-	} else if !status {
-		tflog.Warn(s.ctx, "k3s server isn't active, dumping journalctl logs to TRACE")
-		logs, err := client.Run("sudo journalctl -u k3s")
-		if err != nil {
-			return false, fmt.Errorf("retrieving journalctl status: %s", err.Error())
-		}
-		tflog.Trace(s.ctx, logs[0])
-	} else {
-		tflog.Debug(s.ctx, "k3s server status fetched")
+		return err
 	}
+	tflog.MaskMessageStrings(ctx, kubeConfig)
+	s.KubeConfig = kubeConfig
 
-	return status, nil
-
+	return nil
 }
 
-func (s *server) Journal(client ssh_client.SSHClient) (string, error) {
-	res, err := client.Run("sudo journalctl -xeu k3s")
-	if err != nil {
-		return "", err
-	}
-
-	if len(res) != 1 {
-		return "", fmt.Errorf("wrong number of results from server status check")
-	}
-
-	return res[0], nil
-}
-
-func (s *server) StatusLog(client ssh_client.SSHClient) (string, error) {
-	res, err := client.Run("sudo systemctl status k3s")
-	if err != nil {
-		return "", err
-	}
-
-	if len(res) != 1 {
-		return "", fmt.Errorf("wrong number of results from server status check")
-	}
-
-	return res[0], nil
-}
-
-func (s *server) Update(client ssh_client.SSHClient) error {
+func (s *Server) Update(ctx context.Context, client ssh_client.SSHClient) error {
 	if err := client.WaitForReady(); err != nil {
 		return err
 	}
 
-	commands, err := configCommands(s.ctx, s.config)
-	if err != nil {
-		return err
+	commands := []string{
+		s.installCommand(),
+		"sudo systemctl daemon-reload",
+		"sudo systemctl restart k3s",
 	}
-	regCommands, err := registryCommands(s.ctx, s.registry)
-	if err != nil {
+
+	if err := client.RunStream(commands); err != nil {
 		return err
 	}
 
-	if len(regCommands) != 0 {
-		commands = append(commands, regCommands...)
-	}
-
-	return client.RunStream(append(commands, "sudo systemctl restart k3s"))
+	return nil
 }
 
-func (s *server) Resync(client ssh_client.SSHClient) (err error) {
-	if s.token == "" {
-		s.token, err = s.getToken(client)
-		if err != nil {
-			return
-		}
+func (s *Server) Uninstall(ctx context.Context, client ssh_client.SSHClient) error {
+	if err := client.WaitForReady(); err != nil {
+		return err
 	}
 
-	s.kubeConfig, err = s.getKubeConfig(client)
+	exists, err := k3sServiceExists(client)
 	if err != nil {
-		return
+		return err
+	}
+	if !exists {
+		tflog.Debug(ctx, "k3s service is already absent")
+		return nil
 	}
 
-	s.registry, err = getRegistry(client)
+	binDir := s.BinDir
+	if binDir == "" {
+		binDir = BIN_DIR
+	}
+
+	if err := client.RunStream([]string{
+		fmt.Sprintf("sudo test -f %[1]s/k3s-uninstall.sh && sudo bash %[1]s/k3s-uninstall.sh", binDir),
+	}); err != nil {
+		return err
+	}
+
+	exists, err = k3sServiceExists(client)
 	if err != nil {
-		return
+		return err
+	}
+	if exists {
+		return fmt.Errorf("k3s service still exists after uninstall")
 	}
 
-	s.config, err = getConfig(client)
+	return nil
+}
 
-	return
+func (s *Server) Refresh(ctx context.Context, client ssh_client.SSHClient) (exists bool, active bool, err error) {
+	exists, err = k3sServiceExists(client)
+	if err != nil {
+		return false, false, err
+	}
+	if !exists {
+		return false, false, nil
+	}
+
+	active, err = k3sServiceActive(client)
+	if err != nil {
+		return true, false, err
+	}
+
+	version, err := k3sBinaryVersion(client, s.BinDir)
+	if err != nil {
+		return true, active, err
+	}
+	s.Version = version
+
+	token, err := s.getToken(client)
+	if err != nil {
+		return true, active, err
+	}
+	s.Token = token
+	tflog.MaskLogStrings(ctx, s.Token)
+
+	kubeConfig, err := s.getKubeConfig(client)
+	if err != nil {
+		return true, active, err
+	}
+	s.KubeConfig = kubeConfig
+	tflog.MaskLogStrings(ctx, s.KubeConfig)
+
+	return true, active, nil
+}
+
+func (s *Server) installCommand() string {
+	flags := []string{
+		"INSTALL_K3S_SKIP_START=true",
+		fmt.Sprintf("BIN_DIR=%s", s.BinDir),
+		fmt.Sprintf("INSTALL_K3S_EXEC='--config %s/config.yaml'", CONFIG_DIR),
+	}
+
+	// Join existing cluster as HA node or bootstrap with an existing one
+	if s.Token != "" {
+		flags = append(flags, fmt.Sprintf("K3S_TOKEN=%s", s.Token))
+	}
+
+	// Did version get set?
+	if s.Version != "" {
+		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION=\"%s\"", s.Version))
+	}
+
+	for k, v := range s.Env {
+		flags = append(flags, fmt.Sprintf("%s=\"%s\"", k, v))
+	}
+
+	return fmt.Sprintf("sudo %s bash %s/k3s-install.sh", strings.Join(flags, " "), s.BinDir)
+}
+
+func k3sServiceExists(client ssh_client.SSHClient) (bool, error) {
+	return k3sSystemdServiceExists(client, "k3s")
+}
+
+func k3sServiceActive(client ssh_client.SSHClient) (bool, error) {
+	return k3sSystemdServiceActive(client, "k3s")
+}
+
+func (s *Server) dataDir() string {
+	if dir, ok := s.config["data_dir"].(string); ok && dir != "" {
+		return dir
+	}
+	return DATA_DIR
 }
 
 // Retrieve server token.
-func (s *server) getToken(client ssh_client.SSHClient) (string, error) {
+func (s *Server) getToken(client ssh_client.SSHClient) (string, error) {
 	// Look in default location
 	token, err := client.ReadFile("/var/lib/rancher/k3s/server/token", true, true)
 	if err != nil {
@@ -363,12 +314,32 @@ func (s *server) getToken(client ssh_client.SSHClient) (string, error) {
 	}
 
 	token = strings.Trim(token, "\n")
-	tflog.MaskMessageStrings(s.ctx, token)
+
 	return token, nil
 }
 
+// Retrieve server token.
+func (s *Server) getServerEnv(client ssh_client.SSHClient) (map[string]string, error) {
+	file, err := client.ReadFile("/etc/systemd/system/k3s.service.env", false, true)
+	if err != nil {
+		return nil, err
+	}
+	return godotenv.Unmarshal(file)
+}
+
+func syncExtraFiles(extraFiles map[string]string) (commands []string) {
+	for k, v := range extraFiles {
+		commands = append(commands,
+			fmt.Sprintf("sudo mkdir -p $(sudo realpath $(dirname %s))", k),
+		)
+		commands = append(commands, WriteFileCommands(k, base64.StdEncoding.EncodeToString([]byte(v)))...)
+	}
+
+	return
+}
+
 // Retrieve kubeconfig.
-func (s *server) getKubeConfig(client ssh_client.SSHClient) (string, error) {
+func (s *Server) getKubeConfig(client ssh_client.SSHClient) (string, error) {
 	kubeconfig, err := client.ReadFile("/etc/rancher/k3s/k3s.yaml", false, true)
 	if err != nil {
 		return "", fmt.Errorf("could not retrieve kubeconfig: %s", err.Error())
@@ -378,7 +349,7 @@ func (s *server) getKubeConfig(client ssh_client.SSHClient) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not retrieve server kubeconfig: %s", err.Error())
 	}
-	tflog.MaskMessageStrings(s.ctx, kubeConfig)
+
 	return kubeConfig, nil
 }
 
@@ -400,23 +371,9 @@ func updateKubeConfig(kubeconfigText string, host string) (string, error) {
 	return string(fixed), nil
 }
 
-// Retrieve server token.
-func (s *server) getServerEnv(client ssh_client.SSHClient) (map[string]string, error) {
-	file, err := client.ReadFile("/etc/systemd/system/k3s.service.env", false, true)
-	if err != nil {
-		return nil, err
+func (s *Server) addFile(path string, content string) {
+	if s.ExtraFiles == nil {
+		s.ExtraFiles = make(map[string]string)
 	}
-	tflog.Info(s.ctx, fmt.Sprintf("K3s service file %v", file))
-	return godotenv.Unmarshal(file)
-}
-
-func (s *server) syncExtraFiles() (commands []string) {
-	for k, v := range s.extraFiles {
-		commands = append(commands,
-			fmt.Sprintf("sudo mkdir -p $(sudo realpath $(dirname %s))", k),
-		)
-		commands = append(commands, WriteFileCommands(k, base64.StdEncoding.EncodeToString([]byte(v)))...)
-	}
-
-	return
+	s.ExtraFiles[path] = content
 }
