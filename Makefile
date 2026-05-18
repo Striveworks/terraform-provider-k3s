@@ -12,7 +12,7 @@ gobincheck:
 .PHONY: pre-commit-install
 pre-commit-install:
 	pre-commit install; \
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $$(go env GOPATH)/bin v2.1.6;
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $$(go env GOPATH)/bin;
 
 .PHONY: cfg-tfrc
 cfg-tfrc:
@@ -30,7 +30,7 @@ configure: cfg-tfrc gobincheck pre-commit-install ## Configures local terraform 
 
 .PHONY: vendor
 vendor: ## Vendors the K3s script for offline installs
-	curl https://get.k3s.io -o assets/k3s-install.sh
+	curl https://get.k3s.io -o internal/k3s/assets/k3s-install.sh
 
 .PHONY: build
 build: ## Builds the binary
@@ -39,10 +39,6 @@ build: ## Builds the binary
 .PHONY: install
 install: build ## Install locally the plugin
 	go install -v ./...
-
-.PHONY: lint
-lint: ## Lints the entire repo
-	docker run -t --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.8.0 golangci-lint run
 
 .PHONY: generate
 generate: ## Generates plugin docs. WARNING Only target requiring terraform and not opentofu
@@ -95,9 +91,9 @@ destroy-%: ## Destroys the openstack example provider
 validate-%: ## Destroys the openstack example provider
 	tofu -chdir=examples/$* destroy -auto-approve
 
-.PHONY: docker-%
-docker-%:
-	docker build --target $* -f tests/Dockerfile -t ghcr.io/striveworks/terraform-provider-k3s:$* tests/
+.PHONY: test-image
+test-image:
+	docker build -t terraform-k3s-provider:latest -f tests/Dockerfile tests/
 
 .PHONY: help
 help:  ## Display this help

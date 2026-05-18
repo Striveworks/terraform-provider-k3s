@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v2.3.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
     hooks:
       - id: check-yaml
       - id: end-of-file-fixer
@@ -9,7 +9,8 @@ repos:
         exclude: docs/
       - id: check-merge-conflict
   - repo: https://github.com/golangci/golangci-lint
-    rev: v2.8.0 # Use the latest version
+    rev: c0d3ddc9cf3faa61a4e378e879ece580256d76e5 # v2.12.2
     hooks:
       - id: golangci-lint
         args: [--fix]
+        language: system

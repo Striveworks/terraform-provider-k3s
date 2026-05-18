@@ -1,0 +1,35 @@
+services:
+  k3s-init: &server
+    build: .
+    privileged: true
+    # Fixed: added the underscore
+    stop_signal: SIGRTMIN+3
+    tmpfs:
+      - /tmp
+      - /run
+      - /run/lock
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    ports:
+      - "2222:22"
+      - "6443:6443"
+  k3s-server1:
+    <<: *server
+    ports:
+      - "2223:22"
+      - "6444:6443"
+  k3s-server2:
+    <<: *server
+    ports:
+      - "2224:22"
+      - "6445:6443"
+  k3s-agent1:
+    <<: *server
+    ports:
+      - "2322:22"
+      - "6446:6443"
+  k3s-agent2:
+    <<: *server
+    ports:
+      - "2323:22"
+      - "6447:6443"

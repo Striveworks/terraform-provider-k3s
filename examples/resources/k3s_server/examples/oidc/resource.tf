@@ -32,11 +32,11 @@ resource "k3s_server" "init" {
     user        = var.user
     private_key = var.private_key
   }
-  config      = var.config
-  oidc_config = var.oidc_config
+  config = var.config
+  oidc   = var.oidc_config
 }
 
 output "jwks" {
-  value     = k3s_server.init.oidc_config.jwks
+  value     = k3s_server.init.oidc.jwks_keys
   sensitive = true
 }

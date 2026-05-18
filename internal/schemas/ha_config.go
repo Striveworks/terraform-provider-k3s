@@ -1,4 +1,4 @@
-package handlers
+package schemas
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
-	"striveworks.us/terraform-provider-k3s/internal/k3s"
 )
 
 type HaConfig struct {
@@ -48,17 +47,7 @@ func (m HaConfig) Schema() schema.Attribute {
 	}
 }
 
-func (h HaConfig) configureServer(server k3s.ServerHaMode) {
-	server.AddHA(h.ClusterInit.ValueBool(), h.Token.ValueString(), h.Server.ValueString())
-}
-
-func NewHaConfig(ctx context.Context, t basetypes.ObjectValue) HaConfig {
-	var na HaConfig
-	t.As(ctx, &na, basetypes.ObjectAsOptions{})
-	return na
-}
-
-func (m *HaConfig) ToObject(ctx context.Context) basetypes.ObjectValue {
+func (m HaConfig) ToObject(ctx context.Context) basetypes.ObjectValue {
 	return ToObject(ctx, m)
 }
 

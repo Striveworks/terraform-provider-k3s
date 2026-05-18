@@ -15,12 +15,14 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "set to true to run the provider with support for debuggers like delve")
 	flag.Parse()
 
-	err := providerserver.Serve(context.Background(), provider.New(""), providerserver.ServeOpts{
-		Address: "registry.opentofu.org/striveworks/k3s",
-		Debug:   debug,
-	})
-
-	if err != nil {
+	if err := providerserver.Serve(
+		context.Background(),
+		provider.New(""),
+		providerserver.ServeOpts{
+			Address: "registry.opentofu.org/striveworks/k3s",
+			Debug:   debug,
+		},
+	); err != nil {
 		log.Fatal(err.Error())
 	}
 }

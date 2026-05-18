@@ -3,104 +3,73 @@ package ssh_client
 import (
 	"bufio"
 	"context"
-	"encoding/pem"
-	"errors"
 	"fmt"
+	"io"
+	"os"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"golang.org/x/crypto/ssh"
 )
 
-func NewSSHClient(ctx context.Context, hostnameOrIpAddress string, port int, user string, pem string, password string) (SSHClient, error) {
-	var auth ssh.AuthMethod
-	if pem != "" {
-		tflog.MaskMessageStrings(ctx, pem)
-		signer, err := signerFromPem([]byte(pem))
-		if err != nil {
-			return nil, err
-		}
-		auth = ssh.PublicKeys(signer)
-	} else {
-		tflog.MaskMessageStrings(ctx, password)
-		tflog.Debug(ctx, "Using password auth")
-		auth = ssh.Password(password)
+func NewSSHClient(ctx context.Context, config SSHConfig) (SSHClient, error) {
+	auths := make([]ssh.AuthMethod, 0)
+	password := config.Password.ValueString()
+	if password != "" {
+		ctx = tflog.MaskLogStrings(ctx, password)
+		auths = append(auths, ssh.Password(password))
 	}
 
-	tflog.Info(ctx, fmt.Sprintf("Using auth against %s", hostnameOrIpAddress))
-	return &sshClient{
+	privateKey := config.PrivateKey.ValueString()
+	if privateKey != "" {
+		ctx = tflog.MaskLogStrings(ctx, privateKey)
+		signer, err := signerFromPem([]byte(privateKey))
+		if err != nil {
+			return SSHClient{}, err
+		}
+		auths = append(auths, ssh.PublicKeys(signer))
+	}
+
+	if config.PrivateKeyFile.ValueString() != "" {
+		key, err := os.ReadFile(config.PrivateKeyFile.ValueString())
+		if err != nil {
+			return SSHClient{}, fmt.Errorf("cannot read private key file: %w", err)
+		}
+		signer, err := signerFromPem(key)
+		if err != nil {
+			return SSHClient{}, fmt.Errorf("cannot parse private key file: %w", err)
+		}
+		auths = append(auths, ssh.PublicKeys(signer))
+	}
+
+	Config := ssh.ClientConfig{
+		User: config.User.ValueString(),
+		Auth: auths,
+	}
+	if config.IgnoreHostKeyVerification.ValueBool() {
+		Config.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+	}
+
+	tflog.Info(ctx, fmt.Sprintf("Using auth against %s", config.Host))
+	return SSHClient{
 		ctx:                 ctx,
-		hostnameOrIpAddress: hostnameOrIpAddress,
-		port:                port,
-		config: ssh.ClientConfig{
-			User: user,
-			Auth: []ssh.AuthMethod{
-				auth,
-			},
-			// In production, implement proper host key verification
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			// Timeout:         60,
-		}}, nil
+		HostnameOrIPAddress: config.Host.ValueString(),
+		Port:                int(config.Port.ValueInt32()),
+		Config:              Config,
+	}, nil
 }
 
-type SSHRun interface {
-	// Runs a set of commands, gathering their output into
-	// a list of outputs
-	Run(commands ...string) ([]string, error)
+type SSHClient struct {
+	HostnameOrIPAddress string
+	Config              ssh.ClientConfig
+	Port                int
+
+	ctx context.Context
 }
 
-type SSHStream interface {
-	// Runs a set of commands, streaming their output to a callbacks
-	// Callbacks will be (stdout, stderr) or (stdout + stderr,)
-	RunStream(commands []string) error
-}
-
-type SSHWaitForReady interface {
-	// Waits for the server to be ready
-	WaitForReady() error
-}
-
-type SSHHost interface {
-	// Host name/address
-	Host() string
-	// Gets the hostname, which is passed in via constructor.
-	HostnameOrIpAddress() string
-}
-
-type SSHHostname interface {
-	// Gets the hostname by running `hostname` on the remote
-	Hostname() (string, error)
-}
-
-type SSHReadFile interface {
-	// Reads file from remote path
-	ReadFile(path string, missingOk bool, sudo bool) (string, error)
-}
-
-type SSHClient interface {
-	SSHRun
-	SSHStream
-	SSHWaitForReady
-	SSHHost
-	SSHHostname
-	SSHReadFile
-}
-
-var _ SSHClient = &sshClient{}
-
-type sshClient struct {
-	config              ssh.ClientConfig
-	hostnameOrIpAddress string
-	port                int
-	ctx                 context.Context
-}
-
-func (s *sshClient) HostnameOrIpAddress() string {
-	return s.hostnameOrIpAddress
-}
-
-func (s *sshClient) Hostname() (hostname string, err error) {
+func (s *SSHClient) Hostname() (hostname string, err error) {
 	hostname, err = s.runSingle("sudo hostname")
 	if err != nil {
 		return
@@ -110,12 +79,13 @@ func (s *sshClient) Hostname() (hostname string, err error) {
 	return
 }
 
-func (s *sshClient) Host() string {
-	return fmt.Sprintf("%s:%d", s.hostnameOrIpAddress, s.port)
+func (s *SSHClient) Host() string {
+	return fmt.Sprintf("%s:%d", s.HostnameOrIPAddress, s.Port)
 }
 
-func (s *sshClient) Run(commands ...string) (results []string, err error) {
-
+// Runs a set of commands, gathering their output into
+// a list of outputs.
+func (s *SSHClient) Run(commands ...string) (results []string, err error) {
 	// Start the command
 	for _, cmd := range commands {
 		result, err := s.runSingle(cmd)
@@ -129,8 +99,8 @@ func (s *sshClient) Run(commands ...string) (results []string, err error) {
 	return
 }
 
-func (s *sshClient) runSingle(command string) (result string, err error) {
-	client, err := ssh.Dial("tcp", s.Host(), &s.config)
+func (s *SSHClient) runSingle(command string) (result string, err error) {
+	client, err := ssh.Dial("tcp", s.Host(), &s.Config)
 	if err != nil {
 		return result, fmt.Errorf("create client failed %v", err)
 	}
@@ -152,8 +122,9 @@ func (s *sshClient) runSingle(command string) (result string, err error) {
 	return
 }
 
-// RunStream implements SSHClient.
-func (s *sshClient) RunStream(commands []string) (err error) {
+// Runs a set of commands, streaming their output to a callbacks
+// Callbacks will be (stdout, stderr) or (stdout + stderr,).
+func (s *SSHClient) RunStream(commands []string) (err error) {
 	for _, cmd := range commands {
 		if err = s.streamSingle(cmd); err != nil {
 			return
@@ -162,8 +133,8 @@ func (s *sshClient) RunStream(commands []string) (err error) {
 	return
 }
 
-func (s *sshClient) streamSingle(command string) error {
-	client, err := ssh.Dial("tcp", s.Host(), &s.config)
+func (s *SSHClient) streamSingle(command string) error {
+	client, err := ssh.Dial("tcp", s.Host(), &s.Config)
 	if err != nil {
 		return fmt.Errorf("create client failed %v", err)
 	}
@@ -191,31 +162,14 @@ func (s *sshClient) streamSingle(command string) error {
 		return fmt.Errorf("cannot start cmd '%s': %s", command, err)
 	}
 
-	done := make(chan struct{}, 2)
-
-	// Stream stdout
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			line := scanner.Text()
-			tflog.Debug(s.ctx, fmt.Sprintf("[STDOUT] %s", line))
-		}
-		done <- struct{}{}
-	}()
-
-	// Stream stderr
-	go func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			line := scanner.Text()
-			tflog.Debug(s.ctx, fmt.Sprintf("[STDERR] %s", line))
-		}
-		done <- struct{}{}
-	}()
+	errChan := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go s.logPipe(stdout, "[STDOUT]", &wg, errChan)
+	go s.logPipe(stderr, "[STDERR]", &wg, errChan)
 
 	// Wait for both output streams to finish
-	<-done
-	<-done
+	wg.Wait()
 
 	// Wait for the command to finish
 	if err := session.Wait(); err != nil {
@@ -226,10 +180,25 @@ func (s *sshClient) streamSingle(command string) error {
 	return nil
 }
 
-func (s *sshClient) WaitForReady() error {
+func (s *SSHClient) logPipe(pipe io.Reader, prefix string, wg *sync.WaitGroup, errChan chan<- error) {
+	defer wg.Done()
+	scanner := bufio.NewScanner(pipe)
+	for scanner.Scan() {
+		line := scanner.Text()
+		tflog.Debug(s.ctx, fmt.Sprintf("%s %s", prefix, line))
+	}
+
+	// Send the error to the channel (could be nil, which is fine)
+	if err := scanner.Err(); err != nil {
+		errChan <- fmt.Errorf("%s: %w", prefix, err)
+	}
+}
+
+// Waits for the server to be ready.
+func (s *SSHClient) WaitForReady() error {
 	maxRetries := 10
 	for i := range maxRetries {
-		client, err := ssh.Dial("tcp", s.Host(), &s.config)
+		client, err := ssh.Dial("tcp", s.Host(), &s.Config)
 		if err == nil {
 			client.Close()
 			break
@@ -246,8 +215,7 @@ func (s *sshClient) WaitForReady() error {
 	return nil
 }
 
-func (s *sshClient) ReadFile(path string, missingOk bool, sudo bool) (string, error) {
-
+func (s *SSHClient) ReadFile(path string, missingOk bool, sudo bool) (string, error) {
 	command := fmt.Sprintf("cat %s", path)
 	if sudo {
 		command = fmt.Sprintf("sudo %s", command)
@@ -264,20 +232,18 @@ func (s *sshClient) ReadFile(path string, missingOk bool, sudo bool) (string, er
 	return result[0], nil
 }
 
-func (s *sshClient) ReadOptionalFile(path string, sudo ...bool) (string, error) {
+func (s *SSHClient) ReadOptionalFile(path string, sudo ...bool) (string, error) {
 	return s.ReadFile(path, true, len(sudo) > 0 && sudo[0])
 }
 
 func signerFromPem(pemBytes []byte) (ssh.Signer, error) {
-	err := errors.New("pem decode failed, no key found")
-	pemBlock, _ := pem.Decode(pemBytes)
-	if pemBlock == nil {
-		return nil, err
-	}
 	signer, err := ssh.ParsePrivateKey(pemBytes)
 	if err != nil {
-		return nil, fmt.Errorf("parsing plain private key failed %v", err)
+		// Check if the error is due to a password-protected key, which is not supported yet.
+		if _, ok := err.(*ssh.PassphraseMissingError); ok {
+			return nil, fmt.Errorf("parsing private key failed: password-protected keys are not supported: %w", err)
+		}
+		return nil, fmt.Errorf("parsing private key failed: %w", err)
 	}
-
 	return signer, nil
 }

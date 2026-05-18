@@ -1,5 +1,0 @@
-.terraform/
-*.pem
-*.sh
-*.tfstate*
-*.auto.tfvars.json

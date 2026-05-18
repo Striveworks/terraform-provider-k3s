@@ -3,12 +3,12 @@
 page_title: "k3s_agent Resource - k3s"
 subcategory: ""
 description: |-
-  Creates a k3s agent resource. Only one of password or private_key can be passed. Requires a token and server address to a k3s_server resource
+  Creates a k3s agent resource. Requires SSH authentication, a token, and a server address from a k3s_server resource.
 ---
 
 # k3s_agent (Resource)
 
-Creates a k3s agent resource. Only one of `password` or `private_key` can be passed. Requires a token and server address to a k3s_server resource
+Creates a k3s agent resource. Requires SSH authentication, a token, and a server address from a k3s_server resource.
 
 ## Example Usage
 
@@ -28,6 +28,18 @@ variable "user" {
 variable "private_key" {
   type      = string
   sensitive = true
+  default   = null
+}
+
+variable "private_key_file" {
+  type      = string
+  sensitive = true
+  default   = null
+}
+
+variable "ssh_port" {
+  type    = number
+  default = 22
 }
 
 variable "config" {
@@ -37,9 +49,11 @@ variable "config" {
 
 resource "k3s_server" "main" {
   auth = {
-    host        = var.server_host
-    user        = var.user
-    private_key = var.private_key
+    host             = var.server_host
+    user             = var.user
+    port             = var.ssh_port
+    private_key      = var.private_key
+    private_key_file = var.private_key_file
   }
   config = var.config
 }
@@ -48,14 +62,16 @@ resource "k3s_agent" "main" {
   count = length(var.agent_hosts)
 
   auth = {
-    host        = var.agent_hosts[count.index]
-    user        = var.user
-    private_key = var.private_key
+    host             = var.agent_hosts[count.index]
+    user             = var.user
+    port             = var.ssh_port
+    private_key      = var.private_key
+    private_key_file = var.private_key_file
   }
-  kubeconfig = k3s_server.main.kubeconfig
-  server     = k3s_server.main.server
-  token      = k3s_server.main.token
-  config     = var.config
+
+  server = k3s_server.main.server
+  token  = k3s_server.main.token
+  config = var.config
 }
 ```
 
@@ -64,31 +80,35 @@ resource "k3s_agent" "main" {
 
 ### Required
 
-- `auth` (Attributes) Auth configuration for the node (see [below for nested schema](#nestedatt--auth))
-- `kubeconfig` (String) KubeConfig for the cluster, needed so agent node can clean itself up
-- `server` (String) Hostname for k3s api server
-- `token` (String, Sensitive) Server token used for joining nodes to the cluster
+- `auth` (Attributes) SSH authentication config. At least one of password, private_key, or private_key_file must be provided. If multiple credential types are provided, each is added to the SSH auth methods. (see [below for nested schema](#nestedatt--auth))
+- `server` (String) Server url used for joining nodes to the cluster.
+- `token` (String, Sensitive) Server token used for joining nodes to the cluster.
 
 ### Optional
 
-- `allow_delete_err` (Boolean) If this is true, deleting the node using kubectl first will be allowed to error not stopping the k3s uninstall process
 - `bin_dir` (String) Value of a path used to put the k3s binary
-- `config` (String) K3s server config
+- `config` (String) K3s agent config
 - `env` (Map of String, Sensitive) Extra environment variables to pass to the process
 - `registry` (String) K3s agent registry
+- `version` (String) The k3s version to use. Versions can be found at https://github.com/k3s-io/k3s/releases. If omitted, the observed running version is stored after install.
 
 ### Read-Only
 
 - `active` (Boolean) The health of the server
-- `id` (String) Id of the k3s server resource
+- `id` (String) Id of the k3s agent resource
 
 <a id="nestedatt--auth"></a>
 ### Nested Schema for `auth`
 
+Required:
+
+- `host` (String) Hostname or IP Address
+- `user` (String) SSH User
+
 Optional:
 
-- `host` (String) Hostname of the target server
-- `password` (String, Sensitive) Username of the target server
-- `port` (Number) Override default SSH port (22)
-- `private_key` (String, Sensitive) Private ssh key value to be used in place of a password
-- `user` (String) Username of the target server
+- `ignore_host_key_verification` (Boolean) Ignore host key verification
+- `password` (String, Sensitive) SSH Password
+- `port` (Number) SSH Port
+- `private_key` (String, Sensitive) Inline private key in PEM format
+- `private_key_file` (String, Sensitive) Path to pem file
