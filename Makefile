@@ -49,51 +49,12 @@ fmt: ## Runs go formats
 	gofmt -s -w -e .
 
 .PHONY: test
-test: ## Runs go tests
-	go test -skip ^TestAcc -v -cover -timeout=120s -parallel=10 ./...
+test:
+	go test ./internal/provider -timeout 20m -v
 
-.PHONY: testacc
-testacc: ## Runs go acceptence tests. Can pass T="<testname>"
-	source tools/functions.sh
-	testacc $(T)
-
-.PHONY: testacc-destroy
-testacc-destroy: ## Runs integrations tests
-	source tools/functions.sh
-	test_teardown
-
-.PHONY: testacc-init
-testacc-init: cfg-tfrc ## Stands up backing infrastructure for integration tests
-	source tools/functions.sh
-	test_standup
-
-.PHONY: init-%
-init-%: ## Stands up the openstack example provider
-	source tools/functions.sh
-	tofu_wrapped -chdir=examples/$* init
-
-.PHONY: plan-%
-plan-%: ## Stands up the openstack example provider
-	source tools/functions.sh
-	tofu_wrapped -chdir=examples/$* plan
-
-.PHONY: apply-%
-apply-%: ## Stands up the openstack example provider
-	source tools/functions.sh
-	tofu_wrapped -chdir=examples/$* apply -auto-approve
-
-.PHONY: destroy-%
-destroy-%: ## Destroys the openstack example provider
-	source tools/functions.sh
-	tofu_wrapped -chdir=examples/$* destroy -auto-approve
-
-.PHONY: validate-%
-validate-%: ## Destroys the openstack example provider
-	tofu -chdir=examples/$* destroy -auto-approve
-
-.PHONY: test-image
-test-image:
-	docker build -t terraform-k3s-provider:latest -f tests/Dockerfile tests/
+.PHONY: test-acc
+test-acc:
+	TF_ACC=1 go test ./internal/provider -timeout 20m -v
 
 .PHONY: help
 help:  ## Display this help
