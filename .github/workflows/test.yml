@@ -19,90 +19,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: "go.mod"
           cache: true
       - run: go mod download
       - run: go build -v .
       - name: Run linters
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9
         with:
           version: latest
 
   generate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: "go.mod"
           cache: true
       # We need the latest version of Terraform for our documentation generation to use
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v3
         with:
           terraform_wrapper: false
       - name: git diff
         run: |
           git diff --compact-summary --exit-code || \
             (echo; echo "Unexpected difference in directories after code generation. Run 'make generate' command and commit."; exit 1)
-
-  # Run acceptance tests in a matrix with Terraform CLI versions
-  # test:
-  #   name: Terraform Provider Acceptance Tests
-  #   needs: build
-  #   runs-on: openstack
-  #   timeout-minutes: 15
-  #   env:
-  #     TF_ACC: "1"
-  #     OS_REGION_NAME: "${{ secrets.OS_REGION_NAME }}"
-  #     OS_INTERFACE: "${{ secrets.OS_INTERFACE }}"
-  #     OS_AUTH_TYPE: v3applicationcredential
-  #     OS_AUTH_URL: "${{ secrets.OS_AUTH_URL }}"
-  #     OS_APPLICATION_CREDENTIAL_SECRET: "${{ secrets.OS_APPLICATION_CREDENTIAL_SECRET }}"
-  #     OS_APPLICATION_CREDENTIAL_ID: "${{ secrets.OS_APPLICATION_CREDENTIAL_ID }}"
-  #     OS_IDENTITY_API_VERSION: "3"
-  #     OS_TENANT_NAME: "${{ secrets.OS_TENANT_NAME }}"
-  #     TF_VAR_flavor: "c2-m8-g0"
-  #     TF_VAR_availability_zone: nova
-  #     TF_VAR_name: "${{ matrix.test-case.name }}"
-  #     TF_VAR_user: "${{ matrix.test-case.user }}"
-  #     TF_VAR_image_id: "${{ matrix.test-case.image_id }}"
-  #     TF_VAR_network_id: "${{ secrets.NETWORK_ID }}"
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       test-case:
-  #         - name: single
-  #           user: ubuntu
-  #           # Ubuntu 24.04
-  #           image_id: 0429c74d-e5bb-430f-b854-8d5fa98af8dd
-  #   steps:
-  #     - uses: actions/checkout@v6
-  #     - uses: actions/setup-go@v6
-  #       with:
-  #         go-version-file: "go.mod"
-  #         cache: true
-  #     - uses: hashicorp/setup-terraform@v3
-  #       with:
-  #         terraform_version: 1.9.*
-  #     - run: go mod download
-  #     - run: make cfg-tfrc
-  #     - run: make install
-  #     - name: Stand up test infra
-  #       run: |
-  #         terraform -chdir=tests init
-  #         terraform -chdir=tests apply -auto-approve
-  #         terraform -chdir=tests output -json \
-  #           | jq 'to_entries | map({(.key): .value.value})|add' > acc_test_inputs.json
-  #         echo "TEST_JSON_PATH=$(pwd)/acc_test_inputs.json" >> "$GITHUB_ENV"
-  #     - name: Run tests
-  #       env:
-  #         TF_LOG_PROVIDER: trace
-  #       run: |
-  #         go test -v -cover -timeout 360m ./...
-  #       timeout-minutes: 10
-  #     - if: always()
-  #       name: Teardown resources
-  #       run: terraform -chdir=tests destroy -auto-approve
