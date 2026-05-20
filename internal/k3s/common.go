@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"go.yaml.in/yaml/v2"
@@ -87,6 +88,52 @@ func k3sSystemdServiceActive(client ssh_client.SSHClient, serviceName string) (b
 	}
 
 	return strings.TrimSpace(res[0]) == "active", nil
+}
+
+func restartFailedK3sSystemdService(client ssh_client.SSHClient, serviceName string) error {
+	res, err := client.Run(fmt.Sprintf("sudo systemctl is-failed --quiet %[1]s && echo failed || echo not-failed", serviceName))
+	if err != nil {
+		return err
+	}
+	if len(res) != 1 {
+		return fmt.Errorf("wrong number of results from %s service failed-state check", serviceName)
+	}
+	if strings.TrimSpace(res[0]) != "failed" {
+		return nil
+	}
+
+	_, err = client.Run(fmt.Sprintf("sudo systemctl reset-failed %[1]s && sudo systemctl --no-block start %[1]s", serviceName))
+	return err
+}
+
+func waitForK3sSystemdServiceActive(client ssh_client.SSHClient, serviceName string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		active, err := k3sSystemdServiceActive(client, serviceName)
+		if err != nil {
+			lastErr = err
+		} else if active {
+			return nil
+		}
+
+		if err := restartFailedK3sSystemdService(client, serviceName); err != nil {
+			lastErr = err
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+
+	journal, err := client.Run(fmt.Sprintf("sudo journalctl -u %s --no-pager -n 120 || true", serviceName))
+	if err == nil && len(journal) == 1 && strings.TrimSpace(journal[0]) != "" {
+		return fmt.Errorf("%s service did not become active within %s; recent journal:\n%s", serviceName, timeout, journal[0])
+	}
+	if lastErr != nil {
+		return fmt.Errorf("%s service did not become active within %s: %w", serviceName, timeout, lastErr)
+	}
+
+	return fmt.Errorf("%s service did not become active within %s", serviceName, timeout)
 }
 
 func k3sBinaryVersion(client ssh_client.SSHClient, binDir string) (string, error) {

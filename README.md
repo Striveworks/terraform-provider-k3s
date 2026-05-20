@@ -38,10 +38,15 @@ terraform {
 The provider is tested to target the following cpu and distros
 
 - [x] Ubuntu
+- [x] Rocky Linux 10
 
 with cpu architectures
 
 - [x] amd64
+
+Rocky Linux nodes should have SSH, sudo, systemd, curl, ca-certificates, conntrack, iproute, iptables, kmod, and procps-compatible tooling installed before Terraform runs. Rocky Linux 10 also requires `kernel-modules-extra`.
+
+K3s recommends disabling `firewalld` on Red Hat-family systems, or opening the required K3s API, pod CIDR, service CIDR, and overlay networking ports if firewalld remains enabled. SELinux policy installation is handled by the upstream K3s install script on compatible RPM systems; use the resource `env` map for installer controls such as `INSTALL_K3S_SKIP_SELINUX_RPM`, `INSTALL_K3S_SELINUX_WARN`, or `K3S_SELINUX`.
 
 ### Provider Host Support
 

@@ -3,12 +3,12 @@
 page_title: "k3s_token Resource - k3s"
 subcategory: ""
 description: |-
-  Generates a K3s-compatible bootstrap token in the same format used by k3s token generate and kubeadm token generate.
+  Generates a K3s-compatible short server token suitable for bootstrapping the first server with k3s_server.bootstrap_token.
 ---
 
 # k3s_token (Resource)
 
-Generates a K3s-compatible bootstrap token in the same format used by `k3s token generate` and `kubeadm token generate`.
+Generates a K3s-compatible short server token suitable for bootstrapping the first server with `k3s_server.bootstrap_token`.
 
 
 
@@ -17,5 +17,5 @@ Generates a K3s-compatible bootstrap token in the same format used by `k3s token
 
 ### Read-Only
 
-- `id` (String) Public token ID, which is the first six characters before the token separator.
-- `token` (String, Sensitive) Generated K3s-compatible token in `[a-z0-9]{6}.[a-z0-9]{16}` format.
+- `id` (String) Public token ID, which is the first six characters of the generated token.
+- `token` (String, Sensitive) Generated K3s-compatible short server token in `[a-z0-9]{32}` format.

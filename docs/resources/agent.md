@@ -80,7 +80,9 @@ resource "k3s_agent" "main" {
 
 ### Required
 
-- `auth` (Attributes) SSH authentication config. At least one of password, private_key, or private_key_file must be provided. If multiple credential types are provided, each is added to the SSH auth methods. (see [below for nested schema](#nestedatt--auth))
+- `auth` (Attributes) SSH authentication config. At least one of password, private_key, or private_key_file must be provided. 
+		If multiple credential types are provided, each is added to the SSH auth methods.
+		For host key verification, host_key or host_key_file can be passed in, otherwise host key verification is ignored. (see [below for nested schema](#nestedatt--auth))
 - `server` (String) Server url used for joining nodes to the cluster.
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster.
 
@@ -89,6 +91,7 @@ resource "k3s_agent" "main" {
 - `bin_dir` (String) Value of a path used to put the k3s binary
 - `config` (String) K3s agent config
 - `env` (Map of String, Sensitive) Extra environment variables to pass to the process
+- `orphan` (Boolean) Remove the resource from Terraform state without running the k3s agent uninstall script during deletion.
 - `registry` (String) K3s agent registry
 - `version` (String) The k3s version to use. Versions can be found at https://github.com/k3s-io/k3s/releases. If omitted, the observed running version is stored after install.
 
@@ -107,7 +110,8 @@ Required:
 
 Optional:
 
-- `ignore_host_key_verification` (Boolean) Ignore host key verification
+- `host_key` (String) Inline SSH host public key
+- `host_key_file` (String) Path to SSH host public key
 - `password` (String, Sensitive) SSH Password
 - `port` (Number) SSH Port
 - `private_key` (String, Sensitive) Inline private key in PEM format

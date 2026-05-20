@@ -21,6 +21,24 @@ description: |-
 {{ printf "examples/resources/k3s_server/examples/%s/resource.tf" . | tffile }}
 {{ end }}
 
+### Bootstrap Token
+
+Use `bootstrap_token` for a user-provided token that should be passed to K3s only while bootstrapping a new server. The observed server token remains available from the read-only `token` attribute for joining additional servers or agents.
+
+```terraform
+resource "k3s_token" "bootstrap" {}
+
+resource "k3s_server" "init" {
+  auth = {
+    user        = "root"
+    host        = "server.example.com"
+    private_key = var.private_key
+  }
+
+  bootstrap_token = k3s_token.bootstrap.token
+}
+```
+
 ## Import
 
 `k3s_server` can import an already-installed K3s server by using an SSH URL as the import ID. Import connects to the node, verifies that `k3s.service` exists, and reads the server token and kubeconfig into Terraform state.
@@ -29,7 +47,7 @@ Supported import ID formats:
 
 ```shell
 terraform import k3s_server.main 'ssh://root@example.com?private_key_file=/home/me/.ssh/id_rsa'
-terraform import k3s_server.main 'ssh://root@example.com:2222?password=s3cr3t&ignore_host_key_verification=true'
+terraform import k3s_server.main 'ssh://root@example.com:2222?password=s3cr3t&host_key_file=/home/me/.ssh/known_host.pub'
 terraform import k3s_server.main 'ssh://root:s3cr3t@example.com:2222'
 ```
 
@@ -38,7 +56,8 @@ Supported query parameters:
 - `password` - SSH password. This can also be supplied as URL user info, for example `ssh://root:s3cr3t@example.com`.
 - `private_key` - Inline PEM private key. URL-encode newline and special characters.
 - `private_key_file` - Path to a local private key file. This is usually the least awkward import option.
-- `ignore_host_key_verification` - Boolean. Defaults to `false`.
+- `host_key` - Inline SSH host public key.
+- `host_key_file` - Path to an SSH host public key.
 - `bin_dir` - Directory containing `k3s-uninstall.sh`. Defaults to `/usr/local/bin`.
 
 The import ID must include the SSH user and host, and may include the SSH port. Imported credentials are stored in Terraform state as part of `auth`, so treat import IDs with the same care as normal Terraform configuration and be mindful of shell history.

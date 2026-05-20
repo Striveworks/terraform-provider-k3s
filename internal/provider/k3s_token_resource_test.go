@@ -31,27 +31,27 @@ func TestIsValidK3sToken(t *testing.T) {
 	}{
 		{
 			name:  "valid",
-			token: "abcdef.0123456789abcdef",
+			token: "abcdef0123456789abcdef0123456789",
 			want:  true,
 		},
 		{
 			name:  "uppercase is invalid",
-			token: "ABCDEF.0123456789abcdef",
+			token: "ABCDEF0123456789abcdef0123456789",
 			want:  false,
 		},
 		{
-			name:  "short id is invalid",
-			token: "abcde.0123456789abcdef",
+			name:  "short token is invalid",
+			token: "abcdef0123456789abcdef012345678",
 			want:  false,
 		},
 		{
-			name:  "short secret is invalid",
-			token: "abcdef.0123456789abcde",
+			name:  "long token is invalid",
+			token: "abcdef0123456789abcdef01234567890",
 			want:  false,
 		},
 		{
-			name:  "missing separator is invalid",
-			token: "abcdef0123456789abcdef",
+			name:  "separator is invalid",
+			token: "abcdef.0123456789abcdef012345678",
 			want:  false,
 		},
 		{
@@ -71,7 +71,7 @@ func TestIsValidK3sToken(t *testing.T) {
 }
 
 func TestK3sTokenID(t *testing.T) {
-	if got, want := k3sTokenID("abcdef.0123456789abcdef"), "abcdef"; got != want {
+	if got, want := k3sTokenID("abcdef0123456789abcdef0123456789"), "abcdef"; got != want {
 		t.Errorf("k3sTokenID() = %q, want %q", got, want)
 	}
 }
@@ -88,7 +88,7 @@ func TestK3sTokenResourceMetadata(t *testing.T) {
 }
 
 func TestK3sTokenPatternMatchesDocumentedFormat(t *testing.T) {
-	if got, want := k3sTokenPattern.String(), `^[a-z0-9]{6}\.[a-z0-9]{16}$`; got != want {
+	if got, want := k3sTokenPattern.String(), `^[a-z0-9]{32}$`; got != want {
 		t.Errorf("k3sTokenPattern = %q, want %q", got, want)
 	}
 }

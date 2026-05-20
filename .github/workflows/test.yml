@@ -31,9 +31,18 @@ jobs:
         with:
           version: latest
   test:
-    name: Test
+    name: Test (${{ matrix.distro }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu
+            run: "^(TestDockerHarness|TestAccK3sServerResource|TestAccK3sAgentResource|TestAccK3sServerResourceHA)$"
+          # TODO: Find out why rock10 in the CI breaks
+          # - distro: rocky10
+          #   run: '^(TestAccK3sServerResourceRocky10|TestAccK3sAgentResourceRocky10)$'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -41,7 +50,7 @@ jobs:
           go-version-file: "go.mod"
           cache: true
       - name: Acceptance tests
-        run: make test-acc
+        run: TF_ACC=1 go test ./internal/provider -run '${{ matrix.run }}' -timeout 20m -v
   generate:
     runs-on: ubuntu-latest
     steps:

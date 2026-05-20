@@ -79,11 +79,40 @@ func TestServerWithHaJoinCluster(t *testing.T) {
 	}
 
 	command := server.installCommand()
-	if !strings.Contains(command, "K3S_TOKEN=join-token") {
+	if !strings.Contains(command, "K3S_TOKEN='join-token'") {
 		t.Errorf("installCommand() = %q, want K3S_TOKEN flag", command)
 	}
-	if !strings.Contains(command, "BIN_DIR=/usr/local/bin") {
-		t.Errorf("installCommand() = %q, want default BIN_DIR", command)
+	if !strings.Contains(command, "INSTALL_K3S_BIN_DIR=/usr/local/bin") {
+		t.Errorf("installCommand() = %q, want default INSTALL_K3S_BIN_DIR", command)
+	}
+}
+
+func TestServerWithHaExternalDatastore(t *testing.T) {
+	server := Server{
+		Config: "datastore-endpoint: postgres://k3s:secret@db.example.com:5432/k3s\n",
+	}
+
+	if err := server.Validate(context.Background()); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	server.WithHa(schemas.HaConfig{
+		ClusterInit: types.BoolValue(false),
+		Token:       types.StringValue("join-token"),
+		Server:      types.StringNull(),
+	})
+
+	if _, ok := server.config["server"]; ok {
+		t.Errorf("server config was set without highly_available.server: %#v", server.config["server"])
+	}
+	if got := server.Token; got != "join-token" {
+		t.Errorf("Token = %q, want %q", got, "join-token")
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	if got, want := shellQuote("token'with dollar$"), "'token'\\''with dollar$'"; got != want {
+		t.Errorf("shellQuote() = %q, want %q", got, want)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
@@ -40,6 +41,7 @@ type AgentClientModel struct {
 	Env         types.Map    `tfsdk:"env"`
 	Server      types.String `tfsdk:"server"`
 	Token       types.String `tfsdk:"token"`
+	Orphan      types.Bool   `tfsdk:"orphan"`
 
 	// Outputs
 	Id     types.String `tfsdk:"id"`
@@ -91,6 +93,7 @@ func (k *K3sAgentResource) ImportState(ctx context.Context, req resource.ImportS
 		Server:      types.StringValue(agent.Server),
 		Token:       types.StringValue(agent.Token),
 		Active:      types.BoolValue(active),
+		Orphan:      types.BoolValue(false),
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -205,6 +208,12 @@ func (k *K3sAgentResource) Delete(ctx context.Context, req resource.DeleteReques
 	tflog.Trace(ctx, "Deserializing AgentClientModel")
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if data.Orphan.ValueBool() {
+		tflog.Info(ctx, "Orphaning k3s agent resource without uninstalling")
+		resp.State.RemoveResource(ctx)
 		return
 	}
 
@@ -333,6 +342,12 @@ func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaReques
 			"server": schema.StringAttribute{
 				Required:            true,
 				MarkdownDescription: "Server url used for joining nodes to the cluster.",
+			},
+			"orphan": schema.BoolAttribute{
+				Optional:            true,
+				Computed:            true,
+				MarkdownDescription: "Remove the resource from Terraform state without running the k3s agent uninstall script during deletion.",
+				Default:             booldefault.StaticBool(false),
 			},
 			// Outputs
 			"id": schema.StringAttribute{

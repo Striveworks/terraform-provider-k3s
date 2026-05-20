@@ -160,7 +160,4 @@ func normalizeKubeConfigDataSSHConfig(sshConfig *ssh_client.SSHConfig) {
 	if sshConfig.Port.IsNull() || sshConfig.Port.IsUnknown() || sshConfig.Port.ValueInt32() == 0 {
 		sshConfig.Port = types.Int32Value(22)
 	}
-	if sshConfig.IgnoreHostKeyVerification.IsNull() || sshConfig.IgnoreHostKeyVerification.IsUnknown() {
-		sshConfig.IgnoreHostKeyVerification = types.BoolValue(false)
-	}
 }
