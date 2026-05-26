@@ -2,9 +2,12 @@ package schemas
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -23,26 +26,29 @@ func (m OidcConfig) Schema() schema.Attribute {
 	return schema.SingleNestedAttribute{
 		Optional:    true,
 		Description: "Configuration for integrating an OpenID Connect (OIDC) provider with the K3s cluster. This allows for authentication using OIDC tokens.",
+		PlanModifiers: []planmodifier.Object{
+			objectplanmodifier.UseStateForUnknown(),
+		},
 		Attributes: map[string]schema.Attribute{
 			"audience": schema.StringAttribute{
-				Required:            true,
+				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "The audience that this ID token is intended for. This is a required field.",
+				MarkdownDescription: "The audience that this ID token is intended for. Required when OIDC is configured.",
 			},
 			"pkcs8": schema.StringAttribute{
-				Required:            true,
+				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "The public signing key in PKCS8 format for verifying OIDC tokens.",
+				MarkdownDescription: "The public signing key in PKCS8 format for verifying OIDC tokens. Required when OIDC is configured.",
 			},
 			"signing_key": schema.StringAttribute{
-				Required:            true,
+				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "The private signing key for signing OIDC tokens.",
+				MarkdownDescription: "The private signing key for signing OIDC tokens. Required when OIDC is configured.",
 			},
 			"issuer": schema.StringAttribute{
-				Required:            true,
+				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "The URL of the OIDC issuer. This is a required field.",
+				MarkdownDescription: "The URL of the OIDC issuer. Required when OIDC is configured.",
 			},
 			"jwks_keys": schema.StringAttribute{
 				Computed:            true,
@@ -56,6 +62,22 @@ func (m OidcConfig) Schema() schema.Attribute {
 	}
 }
 func (n OidcConfig) Validate() error {
+	missing := []string{}
+	if n.Audience.IsNull() {
+		missing = append(missing, "audience")
+	}
+	if n.SigningPKCS8.IsNull() {
+		missing = append(missing, "pkcs8")
+	}
+	if n.SigningKey.IsNull() {
+		missing = append(missing, "signing_key")
+	}
+	if n.Issuer.IsNull() {
+		missing = append(missing, "issuer")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("oidc requires %s when configured", strings.Join(missing, ", "))
+	}
 	return nil
 }
 
@@ -72,22 +94,3 @@ func (m OidcConfig) AttributeTypes() map[string]attr.Type {
 		"jwks_keys":   types.StringType,
 	}
 }
-
-// func (m OidcConfig) configureServer(server k3s.ServerOidc) {
-// 	server.AddOidc(
-// 		m.Audience.ValueString(),
-// 		m.Issuer.ValueString(),
-// 		m.SigningPKCS8.ValueString(),
-// 		m.SigningKey.ValueString(),
-// 	)
-// }
-
-// func (m *OidcConfig) setJwks(client ssh_client.SSHClient) error {
-// 	res, err := client.Run("sudo k3s kubectl get --raw /openid/v1/jwks")
-// 	if err != nil {
-// 		return fmt.Errorf("fetching status jwks key: %s", err.Error())
-// 	}
-
-// 	m.JWKSKeys = types.StringValue(res[0])
-// 	return nil
-// }

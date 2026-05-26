@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +41,7 @@ type DockerComposeTestHarness struct {
 	dockerClient *client.Client
 	imageTag     string
 	containerIDs []string
+	dockerfile   string
 }
 
 type ServerInfo struct {
@@ -53,6 +55,10 @@ type ServerInfo struct {
 }
 
 func NewDockerComposeTestHarness(t *testing.T, serverNames []string) (*DockerComposeTestHarness, error) {
+	return NewDockerComposeTestHarnessWithDockerfile(t, serverNames, "Dockerfile")
+}
+
+func NewDockerComposeTestHarnessWithDockerfile(t *testing.T, serverNames []string, dockerfile string) (*DockerComposeTestHarness, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)
@@ -63,17 +69,18 @@ func NewDockerComposeTestHarness(t *testing.T, serverNames []string) (*DockerCom
 		return nil, fmt.Errorf("failed to get absolute path for build context: %w", err)
 	}
 
-	hash, err := getContextHash(buildContextPath)
+	hash, err := getContextHash(buildContextPath, dockerfile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get build context hash: %w", err)
 	}
-	imageTag := fmt.Sprintf("tf-k3s-test-img:%s", hash)
+	imageTag := fmt.Sprintf("tf-k3s-test-img-%s:%s", strings.ToLower(sanitizeDockerfileName(dockerfile)), hash)
 
 	harness := &DockerComposeTestHarness{
 		t:            t,
 		Servers:      make(map[string]*ServerInfo),
 		dockerClient: cli,
 		imageTag:     imageTag,
+		dockerfile:   dockerfile,
 	}
 
 	for _, name := range serverNames {
@@ -102,14 +109,14 @@ func (h *DockerComposeTestHarness) Setup() error {
 		}
 
 		tar, err := archive.TarWithOptions(buildContextPath, &archive.TarOptions{
-			IncludeFiles: []string{"Dockerfile"},
+			IncludeFiles: []string{h.dockerfile},
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create tar from build context: %w", err)
 		}
 
 		opts := build.ImageBuildOptions{
-			Dockerfile: "Dockerfile",
+			Dockerfile: h.dockerfile,
 			Tags:       []string{h.imageTag},
 			Remove:     true,
 		}
@@ -213,11 +220,10 @@ func (h *DockerComposeTestHarness) Setup() error {
 		h.t.Logf("Waiting for SSH to be available on port %d for server %s...", server.Port, name)
 
 		sshConfig := ssh_client.SSHConfig{
-			Host:                      types.StringValue(server.Host),
-			Port:                      types.Int32Value(int32(server.Port)),
-			User:                      types.StringValue("root"),
-			Password:                  types.StringValue("rootpassword"),
-			IgnoreHostKeyVerification: types.BoolValue(true),
+			Host:     types.StringValue(server.Host),
+			Port:     types.Int32Value(int32(server.Port)),
+			User:     types.StringValue("root"),
+			Password: types.StringValue("rootpassword"),
 		}
 
 		var ready bool
@@ -301,8 +307,8 @@ func TestDockerHarness(t *testing.T) {
 	}
 }
 
-func getContextHash(path string) (string, error) {
-	dockerfilePath := filepath.Join(path, "Dockerfile")
+func getContextHash(path string, dockerfile string) (string, error) {
+	dockerfilePath := filepath.Join(path, dockerfile)
 	f, err := os.Open(dockerfilePath)
 	if err != nil {
 		return "", err
@@ -315,6 +321,31 @@ func getContextHash(path string) (string, error) {
 	}
 
 	return fmt.Sprintf("%x", h.Sum(nil))[:12], nil
+}
+
+func sanitizeDockerfileName(name string) string {
+	cleaned := make([]rune, 0, len(name))
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			cleaned = append(cleaned, r)
+			continue
+		}
+		cleaned = append(cleaned, '-')
+	}
+	return string(cleaned)
+}
+
+func k3sAcceptanceEnvBlock(dockerfile string) string {
+	if dockerfile != "Dockerfile.rocky10" {
+		return ""
+	}
+
+	return `
+	env = {
+		INSTALL_K3S_SKIP_SELINUX_RPM = "true"
+		INSTALL_K3S_SELINUX_WARN     = "true"
+	}
+`
 }
 
 func publishedPort(ports nat.PortMap, port nat.Port) (int, error) {

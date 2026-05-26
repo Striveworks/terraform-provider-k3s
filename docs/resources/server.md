@@ -167,6 +167,24 @@ output "jwks" {
 ```
 
 
+### Bootstrap Token
+
+Use `bootstrap_token` for a user-provided token that should be passed to K3s only while bootstrapping a new server. The observed server token remains available from the read-only `token` attribute for joining additional servers or agents.
+
+```terraform
+resource "k3s_token" "bootstrap" {}
+
+resource "k3s_server" "init" {
+  auth = {
+    user        = "root"
+    host        = "server.example.com"
+    private_key = var.private_key
+  }
+
+  bootstrap_token = k3s_token.bootstrap.token
+}
+```
+
 ## Import
 
 `k3s_server` can import an already-installed K3s server by using an SSH URL as the import ID. Import connects to the node, verifies that `k3s.service` exists, and reads the server token and kubeconfig into Terraform state.
@@ -175,7 +193,7 @@ Supported import ID formats:
 
 ```shell
 terraform import k3s_server.main 'ssh://root@example.com?private_key_file=/home/me/.ssh/id_rsa'
-terraform import k3s_server.main 'ssh://root@example.com:2222?password=s3cr3t&ignore_host_key_verification=true'
+terraform import k3s_server.main 'ssh://root@example.com:2222?password=s3cr3t&host_key_file=/home/me/.ssh/known_host.pub'
 terraform import k3s_server.main 'ssh://root:s3cr3t@example.com:2222'
 ```
 
@@ -184,7 +202,8 @@ Supported query parameters:
 - `password` - SSH password. This can also be supplied as URL user info, for example `ssh://root:s3cr3t@example.com`.
 - `private_key` - Inline PEM private key. URL-encode newline and special characters.
 - `private_key_file` - Path to a local private key file. This is usually the least awkward import option.
-- `ignore_host_key_verification` - Boolean. Defaults to `false`.
+- `host_key` - Inline SSH host public key.
+- `host_key_file` - Path to an SSH host public key.
 - `bin_dir` - Directory containing `k3s-uninstall.sh`. Defaults to `/usr/local/bin`.
 
 The import ID must include the SSH user and host, and may include the SSH port. Imported credentials are stored in Terraform state as part of `auth`, so treat import IDs with the same care as normal Terraform configuration and be mindful of shell history.
@@ -196,17 +215,20 @@ Install inputs that are not reliably discoverable from the node, such as `config
 
 ### Required
 
-- `auth` (Attributes) SSH authentication config. At least one of password, private_key, or private_key_file must be provided. If multiple credential types are provided, each is added to the SSH auth methods. (see [below for nested schema](#nestedatt--auth))
+- `auth` (Attributes) SSH authentication config. At least one of password, private_key, or private_key_file must be provided. 
+		If multiple credential types are provided, each is added to the SSH auth methods.
+		For host key verification, host_key or host_key_file can be passed in, otherwise host key verification is ignored. (see [below for nested schema](#nestedatt--auth))
 
 ### Optional
 
 - `bin_dir` (String) Value of a path used to put the k3s binary
+- `bootstrap_token` (String, Sensitive) Short server token used only when bootstrapping a new server. Changing this value requires replacing the server.
 - `config` (String) K3s server config
 - `env` (Map of String, Sensitive) Extra environment variables to pass to the process
 - `highly_available` (Attributes) Run server node in highly available mode (see [below for nested schema](#nestedatt--highly_available))
 - `oidc` (Attributes) Configuration for integrating an OpenID Connect (OIDC) provider with the K3s cluster. This allows for authentication using OIDC tokens. (see [below for nested schema](#nestedatt--oidc))
+- `orphan` (Boolean) Remove the resource from Terraform state without running the k3s uninstall script during deletion.
 - `registry` (String) K3s server registry
-- `token` (String, Sensitive) Server token used for joining nodes to the cluster. Can provide a bootstrapping token.
 - `version` (String) The k3s version to use. Versions can be found at https://github.com/k3s-io/k3s/releases. If omitted, the observed running version is stored after install.
 
 ### Read-Only
@@ -216,6 +238,7 @@ Install inputs that are not reliably discoverable from the node, such as `config
 - `id` (String) Id of the k3s server resource
 - `kubeconfig` (String, Sensitive) KubeConfig for the cluster
 - `server` (String) Server url  used for joining nodes to the cluster.
+- `token` (String, Sensitive) Observed server token used for joining nodes to the cluster.
 
 <a id="nestedatt--auth"></a>
 ### Nested Schema for `auth`
@@ -227,7 +250,8 @@ Required:
 
 Optional:
 
-- `ignore_host_key_verification` (Boolean) Ignore host key verification
+- `host_key` (String) Inline SSH host public key
+- `host_key_file` (String) Path to SSH host public key
 - `password` (String, Sensitive) SSH Password
 - `port` (Number) SSH Port
 - `private_key` (String, Sensitive) Inline private key in PEM format
@@ -240,19 +264,19 @@ Optional:
 Optional:
 
 - `cluster_init` (Boolean) Node is the init node for the HA cluster
-- `server` (String) Url of init node
+- `server` (String) URL of an existing server to join. Optional when using an external datastore such as Postgres.
 - `token` (String, Sensitive) Server token used for joining nodes to the cluster
 
 
 <a id="nestedatt--oidc"></a>
 ### Nested Schema for `oidc`
 
-Required:
+Optional:
 
-- `audience` (String, Sensitive) The audience that this ID token is intended for. This is a required field.
-- `issuer` (String, Sensitive) The URL of the OIDC issuer. This is a required field.
-- `pkcs8` (String, Sensitive) The public signing key in PKCS8 format for verifying OIDC tokens.
-- `signing_key` (String, Sensitive) The private signing key for signing OIDC tokens.
+- `audience` (String, Sensitive) The audience that this ID token is intended for. Required when OIDC is configured.
+- `issuer` (String, Sensitive) The URL of the OIDC issuer. Required when OIDC is configured.
+- `pkcs8` (String, Sensitive) The public signing key in PKCS8 format for verifying OIDC tokens. Required when OIDC is configured.
+- `signing_key` (String, Sensitive) The private signing key for signing OIDC tokens. Required when OIDC is configured.
 
 Read-Only:
 

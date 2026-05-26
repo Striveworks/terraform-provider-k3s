@@ -37,7 +37,7 @@ func TestAgentInstallCommand(t *testing.T) {
 	command := agent.installCommand()
 	wantParts := []string{
 		"INSTALL_K3S_SKIP_START=true",
-		"BIN_DIR=/opt/bin",
+		"INSTALL_K3S_BIN_DIR=/opt/bin",
 		"INSTALL_K3S_EXEC='agent --config /etc/rancher/k3s/config.yaml'",
 		"K3S_URL=https://10.0.0.1:6443",
 		"K3S_TOKEN=join-token",

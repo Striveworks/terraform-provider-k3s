@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/joho/godotenv"
@@ -138,10 +139,13 @@ func (s *Server) Install(ctx context.Context, client ssh_client.SSHClient) error
 	commands := []string{
 		s.installCommand(),
 		"sudo systemctl daemon-reload",
-		"sudo systemctl start k3s",
+		"sudo systemctl --no-block start k3s",
 	}
 
 	if err := client.RunStream(commands); err != nil {
+		return err
+	}
+	if err := waitForK3sSystemdServiceActive(client, "k3s", 4*time.Minute); err != nil {
 		return err
 	}
 
@@ -174,10 +178,13 @@ func (s *Server) Update(ctx context.Context, client ssh_client.SSHClient) error 
 	commands := []string{
 		s.installCommand(),
 		"sudo systemctl daemon-reload",
-		"sudo systemctl restart k3s",
+		"sudo systemctl --no-block restart k3s",
 	}
 
 	if err := client.RunStream(commands); err != nil {
+		return err
+	}
+	if err := waitForK3sSystemdServiceActive(client, "k3s", 5*time.Minute); err != nil {
 		return err
 	}
 
@@ -260,13 +267,13 @@ func (s *Server) Refresh(ctx context.Context, client ssh_client.SSHClient) (exis
 func (s *Server) installCommand() string {
 	flags := []string{
 		"INSTALL_K3S_SKIP_START=true",
-		fmt.Sprintf("BIN_DIR=%s", s.BinDir),
+		fmt.Sprintf("INSTALL_K3S_BIN_DIR=%s", s.BinDir),
 		fmt.Sprintf("INSTALL_K3S_EXEC='--config %s/config.yaml'", CONFIG_DIR),
 	}
 
 	// Join existing cluster as HA node or bootstrap with an existing one
 	if s.Token != "" {
-		flags = append(flags, fmt.Sprintf("K3S_TOKEN=%s", s.Token))
+		flags = append(flags, fmt.Sprintf("K3S_TOKEN=%s", shellQuote(s.Token)))
 	}
 
 	// Did version get set?
@@ -279,6 +286,10 @@ func (s *Server) installCommand() string {
 	}
 
 	return fmt.Sprintf("sudo %s bash %s/k3s-install.sh", strings.Join(flags, " "), s.BinDir)
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 func k3sServiceExists(client ssh_client.SSHClient) (bool, error) {
@@ -376,4 +387,21 @@ func (s *Server) addFile(path string, content string) {
 		s.ExtraFiles = make(map[string]string)
 	}
 	s.ExtraFiles[path] = content
+}
+
+func (s *Server) OIDCJWKSKeys(client ssh_client.SSHClient) (string, error) {
+	binDir := s.BinDir
+	if binDir == "" {
+		binDir = BIN_DIR
+	}
+
+	res, err := client.Run(fmt.Sprintf("sudo %s/k3s kubectl get --raw /openid/v1/jwks", binDir))
+	if err != nil {
+		return "", fmt.Errorf("fetching oidc jwks keys: %s", err.Error())
+	}
+	if len(res) != 1 {
+		return "", fmt.Errorf("wrong number of results from oidc jwks keys fetch")
+	}
+
+	return strings.TrimSpace(res[0]), nil
 }

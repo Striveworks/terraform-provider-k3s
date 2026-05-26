@@ -13,23 +13,22 @@ import (
 
 func TestParseServerImportID(t *testing.T) {
 	tests := map[string]struct {
-		rawID                     string
-		user                      string
-		host                      string
-		port                      int32
-		password                  string
-		privateKeyFile            string
-		binDir                    string
-		ignoreHostKeyVerification bool
+		rawID          string
+		user           string
+		host           string
+		port           int32
+		password       string
+		privateKeyFile string
+		hostKeyFile    string
+		binDir         string
 	}{
 		"password query": {
-			rawID:                     "ssh://root@example.com:2222?password=s3cr3t&bin_dir=/opt/bin&ignore_host_key_verification=true",
-			user:                      "root",
-			host:                      "example.com",
-			port:                      2222,
-			password:                  "s3cr3t",
-			binDir:                    "/opt/bin",
-			ignoreHostKeyVerification: true,
+			rawID:    "ssh://root@example.com:2222?password=s3cr3t&bin_dir=/opt/bin",
+			user:     "root",
+			host:     "example.com",
+			port:     2222,
+			password: "s3cr3t",
+			binDir:   "/opt/bin",
 		},
 		"password userinfo": {
 			rawID:    "ssh://root:s3cr3t@example.com",
@@ -40,11 +39,12 @@ func TestParseServerImportID(t *testing.T) {
 			binDir:   "/usr/local/bin",
 		},
 		"private key file": {
-			rawID:          "ssh://ubuntu@192.0.2.10?private_key_file=/home/me/.ssh/id_rsa",
+			rawID:          "ssh://ubuntu@192.0.2.10?private_key_file=/home/me/.ssh/id_rsa&host_key_file=/home/me/.ssh/known_host.pub",
 			user:           "ubuntu",
 			host:           "192.0.2.10",
 			port:           22,
 			privateKeyFile: "/home/me/.ssh/id_rsa",
+			hostKeyFile:    "/home/me/.ssh/known_host.pub",
 			binDir:         "/usr/local/bin",
 		},
 	}
@@ -71,8 +71,8 @@ func TestParseServerImportID(t *testing.T) {
 			if got := sshConfig.PrivateKeyFile.ValueString(); got != tt.privateKeyFile {
 				t.Errorf("PrivateKeyFile = %q, want %q", got, tt.privateKeyFile)
 			}
-			if got := sshConfig.IgnoreHostKeyVerification.ValueBool(); got != tt.ignoreHostKeyVerification {
-				t.Errorf("IgnoreHostKeyVerification = %t, want %t", got, tt.ignoreHostKeyVerification)
+			if got := sshConfig.HostKeyFile.ValueString(); got != tt.hostKeyFile {
+				t.Errorf("HostKeyFile = %q, want %q", got, tt.hostKeyFile)
 			}
 			if binDir != tt.binDir {
 				t.Errorf("binDir = %q, want %q", binDir, tt.binDir)
@@ -100,10 +100,19 @@ func TestParseServerImportIDError(t *testing.T) {
 }
 
 func TestAccK3sServerResource(t *testing.T) {
+	runAccK3sServerResource(t, "Dockerfile")
+}
+
+func TestAccK3sServerResourceRocky10(t *testing.T) {
+	runAccK3sServerResource(t, "Dockerfile.rocky10")
+}
+
+func runAccK3sServerResource(t *testing.T, dockerfile string) {
 	skipUnlessAcc(t)
 
-	serverNames := []string{"init"}
-	h, err := NewDockerComposeTestHarness(t, serverNames)
+	prefix := fmt.Sprintf("server-%s-%d", sanitizeDockerfileName(dockerfile), time.Now().UnixNano())
+	serverNames := []string{prefix + "-init"}
+	h, err := NewDockerComposeTestHarnessWithDockerfile(t, serverNames, dockerfile)
 	if err != nil {
 		t.Fatalf("Failed to create test harness: %s", err)
 	}
@@ -117,6 +126,7 @@ func TestAccK3sServerResource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	envBlock := k3sAcceptanceEnvBlock(dockerfile)
 
 	singleK3sServer := fmt.Sprintf(`
 provider "k3s" {}
@@ -127,8 +137,8 @@ resource k3s_server "main" {
 		host 	                     = "localhost",
 		password                     = "rootpassword",
 		port                         = %d
-		ignore_host_key_verification = true
 	}
+%s
 
 	config = <<-YAML
 	disable-agent: true
@@ -149,14 +159,13 @@ data "k3s_kubeconfig" "main" {
 		host 	                     = "localhost",
 		password                     = "rootpassword",
 		port                         = %d
-		ignore_host_key_verification = true
 	}
 
 	hostname = "localhost"
 
 	depends_on = [k3s_server.main]
 }
-`, server.Port, server.Port)
+`, server.Port, envBlock, server.Port)
 	updatedK3sServer := fmt.Sprintf(`
 provider "k3s" {}
 
@@ -166,8 +175,8 @@ resource k3s_server "main" {
 		host 	                     = "localhost",
 		password                     = "rootpassword",
 		port                         = %d
-		ignore_host_key_verification = true
 	}
+%s
 
 	config = <<-YAML
 	disable-agent: true
@@ -187,14 +196,13 @@ data "k3s_kubeconfig" "main" {
 		host 	                     = "localhost",
 		password                     = "rootpassword",
 		port                         = %d
-		ignore_host_key_verification = true
 	}
 
 	hostname = "localhost"
 
 	depends_on = [k3s_server.main]
 }
-`, server.Port, server.Port)
+`, server.Port, envBlock, server.Port)
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
@@ -229,6 +237,68 @@ data "k3s_kubeconfig" "main" {
 					resource.TestCheckResourceAttr("data.k3s_kubeconfig.main", "cluster_auth.server", "https://localhost:6443"),
 					checkK3sServerInstalled(server),
 					checkK3sServerUpdated(server),
+				),
+			},
+		},
+	})
+}
+
+func TestAccK3sServerResourceOrphan(t *testing.T) {
+	skipUnlessAcc(t)
+
+	prefix := fmt.Sprintf("server-orphan-%d", time.Now().UnixNano())
+	serverNames := []string{prefix + "-init"}
+	h, err := NewDockerComposeTestHarness(t, serverNames)
+	if err != nil {
+		t.Fatalf("Failed to create test harness: %s", err)
+	}
+	defer h.Teardown()
+
+	if err := h.Setup(); err != nil {
+		t.Fatalf("Failed to set up test environment: %s", err)
+	}
+
+	server, err := h.GetServer(serverNames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	k3sServer := fmt.Sprintf(`
+provider "k3s" {}
+
+resource k3s_server "main" {
+	auth = {
+		user                         = "root"
+		host                         = "localhost"
+		password                     = "rootpassword"
+		port                         = %d
+	}
+
+	orphan = true
+
+	config = <<-YAML
+	disable-agent: true
+	disable:
+	  - traefik
+	  - servicelb
+	  - metrics-server
+	snapshotter: native
+	write-kubeconfig-mode: "0600"
+	tls-san:
+	  - localhost
+	YAML
+}
+`, server.Port)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             checkK3sServerInstalled(server),
+		Steps: []resource.TestStep{
+			{
+				Config: k3sServer,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("k3s_server.main", "orphan", "true"),
+					checkK3sServerInstalled(server),
 				),
 			},
 		},
@@ -272,7 +342,6 @@ resource k3s_server "init" {
 		host 	                     = "localhost",
 		password                     = "rootpassword",
 		port                         = %d
-		ignore_host_key_verification = true
 	}
 
 	config = <<-YAML
@@ -298,7 +367,6 @@ resource k3s_server "join_1" {
 		host 	                     = "localhost",
 		password                     = "rootpassword",
 		port                         = %d
-		ignore_host_key_verification = true
 	}
 
 	config = <<-YAML
@@ -325,7 +393,6 @@ resource k3s_server "join_2" {
 		host 	                     = "localhost",
 		password                     = "rootpassword",
 		port                         = %d
-		ignore_host_key_verification = true
 	}
 
 	config = <<-YAML
@@ -420,7 +487,7 @@ func checkK3sServerInstalled(server *ServerInfo) resource.TestCheckFunc {
 			}
 		}
 
-		return waitForSSHCommand(server, "sudo k3s kubectl get --raw=/readyz", 2*time.Minute)
+		return waitForSSHCommand(server, "sudo /usr/local/bin/k3s kubectl get --raw=/readyz", 2*time.Minute)
 	}
 }
 
@@ -480,17 +547,17 @@ func checkK3sHAServerInstalled(server *ServerInfo, clusterInit bool, initServerI
 			}
 		}
 
-		return waitForSSHCommand(server, "sudo k3s kubectl get --raw=/readyz", 4*time.Minute)
+		return waitForSSHCommand(server, "sudo /usr/local/bin/k3s kubectl get --raw=/readyz", 4*time.Minute)
 	}
 }
 
 func checkK3sHAClusterReady(server *ServerInfo, nodeCount int) resource.TestCheckFunc {
 	return func(_ *terraform.State) error {
-		if err := waitForSSHCommand(server, "sudo k3s kubectl wait --for=condition=Ready nodes --all --timeout=180s", 5*time.Minute); err != nil {
+		if err := waitForSSHCommand(server, "sudo /usr/local/bin/k3s kubectl wait --for=condition=Ready nodes --all --timeout=180s", 5*time.Minute); err != nil {
 			return err
 		}
 
-		command := fmt.Sprintf("test \"$(sudo k3s kubectl get nodes --no-headers | wc -l | tr -d ' ')\" = \"%d\"", nodeCount)
+		command := fmt.Sprintf("test \"$(sudo /usr/local/bin/k3s kubectl get nodes --no-headers | wc -l | tr -d ' ')\" = \"%d\"", nodeCount)
 		if err := waitForSSHCommand(server, command, 2*time.Minute); err != nil {
 			return fmt.Errorf("waiting for %d ready k3s nodes: %w", nodeCount, err)
 		}
@@ -506,6 +573,6 @@ func checkK3sServerUpdated(server *ServerInfo) resource.TestCheckFunc {
 			return fmt.Errorf("updated config file was not written: %w", err)
 		}
 
-		return waitForSSHCommand(server, "sudo k3s kubectl get --raw=/readyz", 2*time.Minute)
+		return waitForSSHCommand(server, "sudo /usr/local/bin/k3s kubectl get --raw=/readyz", 2*time.Minute)
 	}
 }

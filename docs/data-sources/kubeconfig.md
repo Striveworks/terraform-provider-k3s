@@ -50,24 +50,22 @@ variable "config" {
 
 resource "k3s_server" "main" {
   auth = {
-    host                         = var.host
-    user                         = var.user
-    port                         = var.ssh_port
-    private_key                  = var.private_key
-    private_key_file             = var.private_key_file
-    ignore_host_key_verification = true
+    host             = var.host
+    user             = var.user
+    port             = var.ssh_port
+    private_key      = var.private_key
+    private_key_file = var.private_key_file
   }
   config = var.config
 }
 
 data "k3s_kubeconfig" "kubeconfig" {
   auth = {
-    host                         = var.host
-    user                         = var.user
-    port                         = var.ssh_port
-    private_key                  = var.private_key
-    private_key_file             = var.private_key_file
-    ignore_host_key_verification = true
+    host             = var.host
+    user             = var.user
+    port             = var.ssh_port
+    private_key      = var.private_key
+    private_key_file = var.private_key_file
   }
   hostname = var.kubeconfig_hostname
 
@@ -116,7 +114,8 @@ Required:
 
 Optional:
 
-- `ignore_host_key_verification` (Boolean) Ignore host key verification. Defaults to false when omitted.
+- `host_key` (String) Inline SSH host public key
+- `host_key_file` (String) Path to SSH host public key
 - `password` (String, Sensitive) SSH Password
 - `port` (Number) SSH Port. Defaults to 22 when omitted.
 - `private_key` (String, Sensitive) Inline private key in PEM format

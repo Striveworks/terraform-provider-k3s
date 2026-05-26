@@ -29,7 +29,7 @@ func TestHaConfig_Validate(t *testing.T) {
 				Token:       types.StringValue("some-token"),
 				Server:      types.StringNull(),
 			},
-			expectError: true,
+			expectError: false,
 		},
 		{
 			name: "ClusterInit false, token and server provided",

@@ -36,7 +36,7 @@ func (m HaConfig) Schema() schema.Attribute {
 			},
 			"server": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Url of init node",
+				MarkdownDescription: "URL of an existing server to join. Optional when using an external datastore such as Postgres.",
 			},
 			"token": schema.StringAttribute{
 				Optional:            true,
@@ -60,8 +60,8 @@ func (m HaConfig) AttributeTypes() map[string]attr.Type {
 }
 
 func (h HaConfig) Validate() error {
-	if !h.ClusterInit.ValueBool() && (h.Token.IsNull() || h.Server.IsNull()) {
-		return fmt.Errorf("when not in cluster-init, token and server must be passed")
+	if !h.ClusterInit.ValueBool() && h.Token.IsNull() {
+		return fmt.Errorf("when not in cluster-init, token must be passed")
 	}
 	if h.ClusterInit.ValueBool() && (!h.Token.IsNull() || !h.Server.IsNull()) {
 		return fmt.Errorf("when in cluster-init, token and server must not be passed")

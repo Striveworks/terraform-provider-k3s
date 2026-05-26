@@ -35,24 +35,22 @@ variable "config" {
 
 resource "k3s_server" "main" {
   auth = {
-    host                         = var.host
-    user                         = var.user
-    port                         = var.ssh_port
-    private_key                  = var.private_key
-    private_key_file             = var.private_key_file
-    ignore_host_key_verification = true
+    host             = var.host
+    user             = var.user
+    port             = var.ssh_port
+    private_key      = var.private_key
+    private_key_file = var.private_key_file
   }
   config = var.config
 }
 
 data "k3s_kubeconfig" "kubeconfig" {
   auth = {
-    host                         = var.host
-    user                         = var.user
-    port                         = var.ssh_port
-    private_key                  = var.private_key
-    private_key_file             = var.private_key_file
-    ignore_host_key_verification = true
+    host             = var.host
+    user             = var.user
+    port             = var.ssh_port
+    private_key      = var.private_key
+    private_key_file = var.private_key_file
   }
   hostname = var.kubeconfig_hostname
 

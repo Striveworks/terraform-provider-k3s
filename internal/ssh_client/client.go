@@ -48,7 +48,24 @@ func NewSSHClient(ctx context.Context, config SSHConfig) (SSHClient, error) {
 		User: config.User.ValueString(),
 		Auth: auths,
 	}
-	if config.IgnoreHostKeyVerification.ValueBool() {
+
+	if config.HostKey.ValueString() != "" {
+		key, err := ssh.ParsePublicKey([]byte(config.HostKey.ValueString()))
+		if err != nil {
+			return SSHClient{}, err
+		}
+		Config.HostKeyCallback = ssh.FixedHostKey(key)
+	} else if config.HostKeyFile.ValueString() != "" {
+		contents, err := os.ReadFile(config.HostKeyFile.ValueString())
+		if err != nil {
+			return SSHClient{}, fmt.Errorf("cannot read host key file: %w", err)
+		}
+		key, err := ssh.ParsePublicKey(contents)
+		if err != nil {
+			return SSHClient{}, err
+		}
+		Config.HostKeyCallback = ssh.FixedHostKey(key)
+	} else {
 		Config.HostKeyCallback = ssh.InsecureIgnoreHostKey()
 	}
 

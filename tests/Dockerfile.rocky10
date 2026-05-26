@@ -1,0 +1,39 @@
+FROM rockylinux/rockylinux:10
+
+RUN dnf install -y \
+    ca-certificates \
+    conntrack-tools \
+    curl \
+    iproute \
+    iptables \
+    kernel-modules-extra \
+    kmod \
+    openssh-server \
+    passwd \
+    procps-ng \
+    sudo \
+    systemd \
+    && dnf clean all
+
+RUN ssh-keygen -A \
+    && mkdir -p /var/run/sshd \
+    && echo 'root:rootpassword' | chpasswd \
+    && sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config \
+    && sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config \
+    && sed -i 's/^#\?UsePAM.*/UsePAM no/' /etc/ssh/sshd_config \
+    && mkdir -p /etc/ssh/sshd_config.d \
+    && printf '%s\n' \
+        'PermitRootLogin yes' \
+        'PasswordAuthentication yes' \
+        'UsePAM no' \
+        > /etc/ssh/sshd_config.d/00-k3s-acceptance.conf \
+    && systemctl enable sshd \
+    && systemctl set-default multi-user.target
+
+ENV container=docker
+
+EXPOSE 22 6443
+
+STOPSIGNAL SIGRTMIN+3
+
+CMD ["/usr/sbin/init"]

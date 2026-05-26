@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
@@ -35,14 +36,16 @@ type K3sServerResource struct{}
 
 type ServerClientModel struct {
 	// Inputs
-	Version     types.String `tfsdk:"version"`
-	Auth        types.Object `tfsdk:"auth"`
-	BinDir      types.String `tfsdk:"bin_dir"`
-	K3sConfig   types.String `tfsdk:"config"`
-	K3sRegistry types.String `tfsdk:"registry"`
-	Env         types.Map    `tfsdk:"env"`
-	HaConfig    types.Object `tfsdk:"highly_available"`
-	OidcConfig  types.Object `tfsdk:"oidc"`
+	Version        types.String `tfsdk:"version"`
+	Auth           types.Object `tfsdk:"auth"`
+	BinDir         types.String `tfsdk:"bin_dir"`
+	K3sConfig      types.String `tfsdk:"config"`
+	K3sRegistry    types.String `tfsdk:"registry"`
+	Env            types.Map    `tfsdk:"env"`
+	HaConfig       types.Object `tfsdk:"highly_available"`
+	OidcConfig     types.Object `tfsdk:"oidc"`
+	BootstrapToken types.String `tfsdk:"bootstrap_token"`
+	Orphan         types.Bool   `tfsdk:"orphan"`
 	// Outputs
 	Id          types.String `tfsdk:"id"`
 	Server      types.String `tfsdk:"server"`
@@ -75,7 +78,9 @@ func (s *K3sServerResource) ImportState(ctx context.Context, req resource.Import
 		return
 	}
 
-	server := k3s.Server{}
+	server := k3s.Server{
+		BinDir: binDir,
+	}
 	exists, active, err := server.Refresh(ctx, sshClient)
 	if err != nil {
 		resp.Diagnostics.AddError("importing k3s server", err.Error())
@@ -93,20 +98,22 @@ func (s *K3sServerResource) ImportState(ctx context.Context, req resource.Import
 	}
 
 	data := ServerClientModel{
-		Version:     types.StringValue(server.Version),
-		Auth:        sshConfig.ToObject(ctx),
-		BinDir:      types.StringValue(binDir),
-		K3sConfig:   types.StringNull(),
-		K3sRegistry: types.StringNull(),
-		Env:         types.MapNull(types.StringType),
-		HaConfig:    types.ObjectNull(schemas.HaConfig{}.AttributeTypes()),
-		OidcConfig:  types.ObjectNull(schemas.OidcConfig{}.AttributeTypes()),
-		Id:          types.StringValue(sshClient.Host()),
-		Server:      clusterAuth.Server,
-		KubeConfig:  types.StringValue(server.KubeConfig),
-		Token:       types.StringValue(server.Token),
-		Active:      types.BoolValue(active),
-		ClusterAuth: clusterAuth.ToObject(ctx),
+		Version:        types.StringValue(server.Version),
+		Auth:           sshConfig.ToObject(ctx),
+		BinDir:         types.StringValue(binDir),
+		K3sConfig:      types.StringNull(),
+		K3sRegistry:    types.StringNull(),
+		Env:            types.MapNull(types.StringType),
+		HaConfig:       types.ObjectNull(schemas.HaConfig{}.AttributeTypes()),
+		OidcConfig:     types.ObjectNull(schemas.OidcConfig{}.AttributeTypes()),
+		BootstrapToken: types.StringNull(),
+		Id:             types.StringValue(sshClient.Host()),
+		Server:         clusterAuth.Server,
+		KubeConfig:     types.StringValue(server.KubeConfig),
+		Token:          types.StringValue(server.Token),
+		Active:         types.BoolValue(active),
+		ClusterAuth:    clusterAuth.ToObject(ctx),
+		Orphan:         types.BoolValue(false),
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -143,18 +150,19 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 		}
 	}
 
-	// Masks
-	if data.Token.ValueString() != "" {
-		tflog.MaskMessageStrings(ctx, data.Token.ValueString())
+	if data.BootstrapToken.ValueString() != "" {
+		tflog.MaskMessageStrings(ctx, data.BootstrapToken.ValueString())
 	}
 
 	server := k3s.Server{
 		Config:   data.K3sConfig.ValueString(),
 		Registry: data.K3sRegistry.ValueString(),
-		Token:    data.Token.ValueString(),
 		Version:  data.Version.ValueString(),
 		BinDir:   data.BinDir.ValueString(),
 		Env:      env,
+	}
+	if !data.BootstrapToken.IsNull() && !data.BootstrapToken.IsUnknown() {
+		server.Token = data.BootstrapToken.ValueString()
 	}
 
 	if err := server.Validate(ctx); err != nil {
@@ -205,6 +213,10 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	data.ClusterAuth = clusterAuth.ToObject(ctx)
 	data.Server = clusterAuth.Server
 
+	if !setOIDCJWKSKeys(ctx, &data, oidcConfig, server, sshClient, &resp.Diagnostics) {
+		return
+	}
+
 	tflog.Info(ctx, "Created a k3s server resource")
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -217,6 +229,12 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 	tflog.Trace(ctx, "Deserializing ServerClientModel")
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if data.Orphan.ValueBool() {
+		tflog.Info(ctx, "Orphaning k3s server resource without uninstalling")
+		resp.State.RemoveResource(ctx)
 		return
 	}
 
@@ -286,7 +304,9 @@ func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	server := k3s.Server{}
+	server := k3s.Server{
+		BinDir: data.BinDir.ValueString(),
+	}
 	exists, active, err := server.Refresh(ctx, sshClient)
 	if err != nil {
 		resp.Diagnostics.AddError("reading k3s server", err.Error())
@@ -310,6 +330,17 @@ func (s *K3sServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 	}
 	data.ClusterAuth = clusterAuth.ToObject(ctx)
 	data.Server = clusterAuth.Server
+
+	var oidcConfig *schemas.OidcConfig
+	if !data.OidcConfig.IsNull() && !data.OidcConfig.IsUnknown() {
+		resp.Diagnostics.Append(data.OidcConfig.As(ctx, &oidcConfig, basetypes.ObjectAsOptions{})...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		if !setOIDCJWKSKeys(ctx, &data, oidcConfig, server, sshClient, &resp.Diagnostics) {
+			return
+		}
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -344,14 +375,13 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 		}
 	}
 
-	if data.Token.ValueString() != "" {
-		tflog.MaskMessageStrings(ctx, data.Token.ValueString())
+	if data.BootstrapToken.ValueString() != "" {
+		tflog.MaskMessageStrings(ctx, data.BootstrapToken.ValueString())
 	}
 
 	server := k3s.Server{
 		Config:   data.K3sConfig.ValueString(),
 		Registry: data.K3sRegistry.ValueString(),
-		Token:    data.Token.ValueString(),
 		Version:  data.Version.ValueString(),
 		BinDir:   data.BinDir.ValueString(),
 		Env:      env,
@@ -405,6 +435,10 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 	data.ClusterAuth = clusterAuth.ToObject(ctx)
 	data.Server = clusterAuth.Server
 
+	if !setOIDCJWKSKeys(ctx, &data, oidcConfig, server, sshClient, &resp.Diagnostics) {
+		return
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 
 }
@@ -446,8 +480,13 @@ func validateServerAndReturn(ctx context.Context, data ServerClientModel, d *dia
 	}
 
 	tflog.Trace(ctx, "Validating SSHConfig")
-	if err := sshConfig.Validate(); err != nil {
+	if err := (&sshConfig).Validate(); err != nil {
 		d.AddError("validating auth", err.Error())
+		return
+	}
+
+	if !data.BootstrapToken.IsNull() && !data.BootstrapToken.IsUnknown() && data.BootstrapToken.ValueString() == "" {
+		d.AddError("validating bootstrap_token", "bootstrap_token cannot be an empty string")
 		return
 	}
 
@@ -479,6 +518,22 @@ func validateServerAndReturn(ctx context.Context, data ServerClientModel, d *dia
 		}
 	}
 	return
+}
+
+func setOIDCJWKSKeys(ctx context.Context, data *ServerClientModel, oidcConfig *schemas.OidcConfig, server k3s.Server, sshClient ssh_client.SSHClient, d *diag.Diagnostics) bool {
+	if oidcConfig == nil {
+		return true
+	}
+
+	jwksKeys, err := server.OIDCJWKSKeys(sshClient)
+	if err != nil {
+		d.AddError("fetching oidc jwks keys", err.Error())
+		return false
+	}
+
+	oidcConfig.JWKSKeys = types.StringValue(jwksKeys)
+	data.OidcConfig = oidcConfig.ToObject(ctx)
+	return true
 }
 
 // Schema implements resource.ResourceWithImportState.
@@ -514,9 +569,23 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 				MarkdownDescription: "Extra environment variables to pass to the process",
 				ElementType:         types.StringType,
 			},
+			"bootstrap_token": schema.StringAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Short server token used only when bootstrapping a new server. Changing this value requires replacing the server.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
 			"registry": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "K3s server registry",
+			},
+			"orphan": schema.BoolAttribute{
+				Optional:            true,
+				Computed:            true,
+				MarkdownDescription: "Remove the resource from Terraform state without running the k3s uninstall script during deletion.",
+				Default:             booldefault.StaticBool(false),
 			},
 			// Outputs
 			"id": schema.StringAttribute{
@@ -536,9 +605,8 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 			},
 			"token": schema.StringAttribute{
 				Computed:            true,
-				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "Server token used for joining nodes to the cluster. Can provide a bootstrapping token.",
+				MarkdownDescription: "Observed server token used for joining nodes to the cluster.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -602,27 +670,20 @@ func parseServerImportID(rawID string) (ssh_client.SSHConfig, string, error) {
 		password, _ = parsed.User.Password()
 	}
 
-	ignoreHostKeyVerification := false
-	if query.Has("ignore_host_key_verification") {
-		ignoreHostKeyVerification, err = strconv.ParseBool(query.Get("ignore_host_key_verification"))
-		if err != nil {
-			return ssh_client.SSHConfig{}, "", fmt.Errorf("parsing ignore_host_key_verification: %w", err)
-		}
-	}
-
 	binDir := query.Get("bin_dir")
 	if binDir == "" {
 		binDir = k3s.BIN_DIR
 	}
 
 	return ssh_client.SSHConfig{
-		User:                      types.StringValue(parsed.User.Username()),
-		Host:                      types.StringValue(host),
-		Port:                      types.Int32Value(port),
-		PrivateKey:                optionalImportString(query.Get("private_key")),
-		Password:                  optionalImportString(password),
-		PrivateKeyFile:            optionalImportString(query.Get("private_key_file")),
-		IgnoreHostKeyVerification: types.BoolValue(ignoreHostKeyVerification),
+		User:           types.StringValue(parsed.User.Username()),
+		Host:           types.StringValue(host),
+		Port:           types.Int32Value(port),
+		PrivateKey:     optionalImportString(query.Get("private_key")),
+		Password:       optionalImportString(password),
+		PrivateKeyFile: optionalImportString(query.Get("private_key_file")),
+		HostKey:        optionalImportString(query.Get("host_key")),
+		HostKeyFile:    optionalImportString(query.Get("host_key_file")),
 	}, binDir, nil
 }
 

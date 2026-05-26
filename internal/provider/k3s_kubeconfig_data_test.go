@@ -36,11 +36,10 @@ users:
 func TestPopulateKubeConfigData(t *testing.T) {
 	ctx := context.Background()
 	sshConfig := ssh_client.SSHConfig{
-		User:                      types.StringValue("root"),
-		Host:                      types.StringValue("example.com"),
-		Port:                      types.Int32Value(2222),
-		Password:                  types.StringValue("rootpassword"),
-		IgnoreHostKeyVerification: types.BoolValue(true),
+		User:     types.StringValue("root"),
+		Host:     types.StringValue("example.com"),
+		Port:     types.Int32Value(2222),
+		Password: types.StringValue("rootpassword"),
 	}
 	data := K3sKubeConfigDataModel{
 		Hostname: types.StringValue("lb.example.com"),
@@ -91,11 +90,10 @@ func TestPopulateKubeConfigData(t *testing.T) {
 func TestPopulateKubeConfigDataKeepsExistingServerWithoutHostnameOverride(t *testing.T) {
 	ctx := context.Background()
 	sshConfig := ssh_client.SSHConfig{
-		User:                      types.StringValue("root"),
-		Host:                      types.StringValue("example.com"),
-		Port:                      types.Int32Value(22),
-		Password:                  types.StringValue("rootpassword"),
-		IgnoreHostKeyVerification: types.BoolValue(true),
+		User:     types.StringValue("root"),
+		Host:     types.StringValue("example.com"),
+		Port:     types.Int32Value(22),
+		Password: types.StringValue("rootpassword"),
 	}
 	data := K3sKubeConfigDataModel{
 		Hostname: types.StringNull(),
@@ -113,11 +111,10 @@ func TestPopulateKubeConfigDataKeepsExistingServerWithoutHostnameOverride(t *tes
 func TestSetEmptyKubeConfigData(t *testing.T) {
 	ctx := context.Background()
 	sshConfig := ssh_client.SSHConfig{
-		User:                      types.StringValue("root"),
-		Host:                      types.StringValue("example.com"),
-		Port:                      types.Int32Value(22),
-		Password:                  types.StringValue("rootpassword"),
-		IgnoreHostKeyVerification: types.BoolValue(true),
+		User:     types.StringValue("root"),
+		Host:     types.StringValue("example.com"),
+		Port:     types.Int32Value(22),
+		Password: types.StringValue("rootpassword"),
 	}
 	data := K3sKubeConfigDataModel{}
 
@@ -145,16 +142,12 @@ func TestSetEmptyKubeConfigData(t *testing.T) {
 
 func TestNormalizeKubeConfigDataSSHConfig(t *testing.T) {
 	sshConfig := ssh_client.SSHConfig{
-		Port:                      types.Int32Null(),
-		IgnoreHostKeyVerification: types.BoolNull(),
+		Port: types.Int32Null(),
 	}
 
 	normalizeKubeConfigDataSSHConfig(&sshConfig)
 
 	if got, want := sshConfig.Port.ValueInt32(), int32(22); got != want {
 		t.Errorf("Port = %d, want %d", got, want)
-	}
-	if sshConfig.IgnoreHostKeyVerification.ValueBool() {
-		t.Errorf("IgnoreHostKeyVerification = true, want false")
 	}
 }

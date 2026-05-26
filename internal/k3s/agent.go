@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/joho/godotenv"
@@ -38,10 +39,13 @@ func (a *Agent) Install(ctx context.Context, client ssh_client.SSHClient) error 
 	commands := []string{
 		a.installCommand(),
 		"sudo systemctl daemon-reload",
-		"sudo systemctl start k3s-agent",
+		"sudo systemctl --no-block start k3s-agent",
 	}
 
 	if err := client.RunStream(commands); err != nil {
+		return err
+	}
+	if err := waitForK3sSystemdServiceActive(client, "k3s-agent", 4*time.Minute); err != nil {
 		return err
 	}
 
@@ -202,10 +206,13 @@ func (a *Agent) Update(ctx context.Context, client ssh_client.SSHClient) error {
 	commands := []string{
 		a.installCommand(),
 		"sudo systemctl daemon-reload",
-		"sudo systemctl restart k3s-agent",
+		"sudo systemctl --no-block restart k3s-agent",
 	}
 
 	if err := client.RunStream(commands); err != nil {
+		return err
+	}
+	if err := waitForK3sSystemdServiceActive(client, "k3s-agent", 4*time.Minute); err != nil {
 		return err
 	}
 
@@ -215,7 +222,7 @@ func (a *Agent) Update(ctx context.Context, client ssh_client.SSHClient) error {
 func (a *Agent) installCommand() string {
 	flags := []string{
 		"INSTALL_K3S_SKIP_START=true",
-		fmt.Sprintf("BIN_DIR=%s", a.BinDir),
+		fmt.Sprintf("INSTALL_K3S_BIN_DIR=%s", a.BinDir),
 		fmt.Sprintf("INSTALL_K3S_EXEC='agent --config %s/config.yaml'", CONFIG_DIR),
 		fmt.Sprintf("K3S_URL=%s", a.Server),
 		fmt.Sprintf("K3S_TOKEN=%s", a.Token),

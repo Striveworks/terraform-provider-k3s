@@ -22,12 +22,12 @@ var (
 )
 
 const (
-	k3sTokenChars        = "0123456789abcdefghijklmnopqrstuvwxyz"
-	k3sTokenIDLength     = 6
-	k3sTokenSecretLength = 16
+	k3sTokenChars    = "0123456789abcdefghijklmnopqrstuvwxyz"
+	k3sTokenIDLength = 6
+	k3sTokenLength   = 32
 )
 
-var k3sTokenPattern = regexp.MustCompile(`^[a-z0-9]{6}\.[a-z0-9]{16}$`)
+var k3sTokenPattern = regexp.MustCompile(`^[a-z0-9]{32}$`)
 
 type K3sTokenResource struct{}
 
@@ -46,11 +46,11 @@ func (r *K3sTokenResource) Metadata(_ context.Context, req resource.MetadataRequ
 
 func (r *K3sTokenResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Generates a K3s-compatible bootstrap token in the same format used by `k3s token generate` and `kubeadm token generate`.",
+		MarkdownDescription: "Generates a K3s-compatible short server token suitable for bootstrapping the first server with `k3s_server.bootstrap_token`.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Public token ID, which is the first six characters before the token separator.",
+				MarkdownDescription: "Public token ID, which is the first six characters of the generated token.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -58,7 +58,7 @@ func (r *K3sTokenResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"token": schema.StringAttribute{
 				Computed:            true,
 				Sensitive:           true,
-				MarkdownDescription: "Generated K3s-compatible token in `[a-z0-9]{6}.[a-z0-9]{16}` format.",
+				MarkdownDescription: "Generated K3s-compatible short server token in `[a-z0-9]{32}` format.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -95,7 +95,7 @@ func (r *K3sTokenResource) Read(ctx context.Context, req resource.ReadRequest, r
 
 	token := data.Token.ValueString()
 	if !IsValidK3sToken(token) {
-		resp.Diagnostics.AddError("reading k3s token", fmt.Sprintf("state token %q does not match [a-z0-9]{6}.[a-z0-9]{16}", token))
+		resp.Diagnostics.AddError("reading k3s token", fmt.Sprintf("state token %q does not match [a-z0-9]{32}", token))
 		return
 	}
 
@@ -115,7 +115,7 @@ func (r *K3sTokenResource) Update(ctx context.Context, req resource.UpdateReques
 
 	token := data.Token.ValueString()
 	if !IsValidK3sToken(token) {
-		resp.Diagnostics.AddError("updating k3s token", fmt.Sprintf("state token %q does not match [a-z0-9]{6}.[a-z0-9]{16}", token))
+		resp.Diagnostics.AddError("updating k3s token", fmt.Sprintf("state token %q does not match [a-z0-9]{32}", token))
 		return
 	}
 
@@ -132,7 +132,7 @@ func (r *K3sTokenResource) Delete(ctx context.Context, req resource.DeleteReques
 func (r *K3sTokenResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	token := strings.TrimSpace(req.ID)
 	if !IsValidK3sToken(token) {
-		resp.Diagnostics.AddError("importing k3s token", fmt.Sprintf("import ID must match [a-z0-9]{6}.[a-z0-9]{16}, got %q", req.ID))
+		resp.Diagnostics.AddError("importing k3s token", fmt.Sprintf("import ID must match [a-z0-9]{32}, got %q", req.ID))
 		return
 	}
 
@@ -147,17 +147,7 @@ func (r *K3sTokenResource) ImportState(ctx context.Context, req resource.ImportS
 }
 
 func GenerateK3sToken() (string, error) {
-	tokenID, err := randomK3sTokenPart(k3sTokenIDLength)
-	if err != nil {
-		return "", err
-	}
-
-	tokenSecret, err := randomK3sTokenPart(k3sTokenSecretLength)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("%s.%s", tokenID, tokenSecret), nil
+	return randomK3sTokenPart(k3sTokenLength)
 }
 
 func IsValidK3sToken(token string) bool {
@@ -180,6 +170,8 @@ func randomK3sTokenPart(length int) (string, error) {
 }
 
 func k3sTokenID(token string) string {
-	id, _, _ := strings.Cut(token, ".")
-	return id
+	if len(token) <= k3sTokenIDLength {
+		return token
+	}
+	return token[:k3sTokenIDLength]
 }
