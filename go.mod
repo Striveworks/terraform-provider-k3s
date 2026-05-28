@@ -9,7 +9,7 @@ require (
 	github.com/hashicorp/terraform-plugin-log v0.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/moby/go-archive v0.2.0
-	go.yaml.in/yaml/v2 v2.4.3
+	go.yaml.in/yaml/v2 v2.4.4
 	golang.org/x/crypto v0.52.0
 	k8s.io/client-go v0.35.0
 )
