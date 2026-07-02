@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
@@ -47,54 +48,9 @@ func (k *K3sKubeConfigData) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 
-	var sshConfig ssh_client.SSHConfig
-	tflog.Trace(ctx, "Deserializing SSHConfig")
-	resp.Diagnostics.Append(data.Auth.As(ctx, &sshConfig, basetypes.ObjectAsOptions{})...)
+	_, diags := readKubeConfig(ctx, &data)
+	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	normalizeKubeConfigDataSSHConfig(&sshConfig)
-
-	tflog.Trace(ctx, "Validating SSHConfig")
-	if err := sshConfig.Validate(); err != nil {
-		resp.Diagnostics.AddError("validating auth", err.Error())
-		return
-	}
-
-	sshClient, err := ssh_client.NewSSHClient(ctx, sshConfig)
-	if err != nil {
-		resp.Diagnostics.AddError("creating ssh client", err.Error())
-		return
-	}
-
-	server := k3s.Server{}
-	exists, _, err := server.Refresh(ctx, sshClient)
-	if err != nil {
-		if data.AllowEmpty.ValueBool() {
-			tflog.Info(ctx, "allow_empty is true, returning null kubeconfig outputs")
-			setEmptyKubeConfigData(ctx, &data, sshConfig)
-			resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-			return
-		}
-
-		resp.Diagnostics.AddError("reading kubeconfig", err.Error())
-		return
-	}
-	if !exists {
-		if data.AllowEmpty.ValueBool() {
-			tflog.Info(ctx, "k3s service is missing and allow_empty is true, returning null kubeconfig outputs")
-			setEmptyKubeConfigData(ctx, &data, sshConfig)
-			resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-			return
-		}
-
-		resp.Diagnostics.AddError("reading kubeconfig", fmt.Sprintf("no k3s service found on %s", sshClient.Host()))
-		return
-	}
-
-	if err := populateKubeConfigData(ctx, &data, sshConfig, server.KubeConfig); err != nil {
-		resp.Diagnostics.AddError("reading kubeconfig", err.Error())
 		return
 	}
 
@@ -130,6 +86,62 @@ func (k *K3sKubeConfigData) Schema(_ context.Context, req datasource.SchemaReque
 	}
 }
 
+func readKubeConfig(ctx context.Context, data *K3sKubeConfigDataModel) (types.String, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	var sshConfig ssh_client.SSHConfig
+	tflog.Trace(ctx, "Deserializing SSHConfig")
+	diags.Append(data.Auth.As(ctx, &sshConfig, basetypes.ObjectAsOptions{})...)
+	if diags.HasError() {
+		return types.StringUnknown(), diags
+	}
+
+	normalizeKubeConfigDataSSHConfig(&sshConfig)
+
+	tflog.Trace(ctx, "Validating SSHConfig")
+	if err := sshConfig.Validate(); err != nil {
+		diags.AddError("validating auth", err.Error())
+		return types.StringUnknown(), diags
+	}
+
+	sshClient, err := ssh_client.NewSSHClient(ctx, sshConfig)
+	if err != nil {
+		diags.AddError("creating ssh client", err.Error())
+		return types.StringUnknown(), diags
+	}
+
+	id := types.StringValue(sshClient.Host())
+	server := k3s.Server{}
+	exists, _, err := server.Refresh(ctx, sshClient)
+	if err != nil {
+		if allowEmptyKubeConfig(data) {
+			tflog.Info(ctx, "allow_empty is true, returning null kubeconfig outputs")
+			setEmptyKubeConfigData(ctx, data, sshConfig)
+			return id, diags
+		}
+
+		diags.AddError("reading kubeconfig", err.Error())
+		return types.StringUnknown(), diags
+	}
+	if !exists {
+		if allowEmptyKubeConfig(data) {
+			tflog.Info(ctx, "k3s service is missing and allow_empty is true, returning null kubeconfig outputs")
+			setEmptyKubeConfigData(ctx, data, sshConfig)
+			return id, diags
+		}
+
+		diags.AddError("reading kubeconfig", fmt.Sprintf("no k3s service found on %s", sshClient.Host()))
+		return types.StringUnknown(), diags
+	}
+
+	if err := populateKubeConfigData(ctx, data, sshConfig, server.KubeConfig); err != nil {
+		diags.AddError("reading kubeconfig", err.Error())
+		return types.StringUnknown(), diags
+	}
+
+	return id, diags
+}
+
 func populateKubeConfigData(ctx context.Context, data *K3sKubeConfigDataModel, sshConfig ssh_client.SSHConfig, kubeconfig string) error {
 	clusterAuth, err := schemas.BuildClusterAuth(kubeconfig)
 	if err != nil {
@@ -160,4 +172,8 @@ func normalizeKubeConfigDataSSHConfig(sshConfig *ssh_client.SSHConfig) {
 	if sshConfig.Port.IsNull() || sshConfig.Port.IsUnknown() || sshConfig.Port.ValueInt32() == 0 {
 		sshConfig.Port = types.Int32Value(22)
 	}
+}
+
+func allowEmptyKubeConfig(data *K3sKubeConfigDataModel) bool {
+	return !data.AllowEmpty.IsNull() && !data.AllowEmpty.IsUnknown() && data.AllowEmpty.ValueBool()
 }

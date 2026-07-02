@@ -74,5 +74,6 @@ func (p *K3sProvider) Resources(_ context.Context) []func() resource.Resource {
 		NewK3sServerResource,
 		NewK3sAgentResource,
 		NewK3sTokenResource,
+		NewK3sKubeConfigResource,
 	}
 }
