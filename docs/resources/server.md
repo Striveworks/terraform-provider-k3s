@@ -215,7 +215,7 @@ Install inputs that are not reliably discoverable from the node, such as `config
 
 ### Required
 
-- `auth` (Attributes) SSH authentication config. At least one of password, private_key, or private_key_file must be provided. 
+- `auth` (Attributes) SSH authentication config. At least one of password, private_key, or private_key_file must be provided.
 		If multiple credential types are provided, each is added to the SSH auth methods.
 		For host key verification, host_key or host_key_file can be passed in, otherwise host key verification is ignored. (see [below for nested schema](#nestedatt--auth))
 
