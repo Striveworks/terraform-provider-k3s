@@ -10,7 +10,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/moby/go-archive v0.2.0
 	go.yaml.in/yaml/v2 v2.4.4
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	k8s.io/client-go v0.37.0
 )
 
