@@ -50,7 +50,7 @@ func NewSSHClient(ctx context.Context, config SSHConfig) (SSHClient, error) {
 	}
 
 	if config.HostKey.ValueString() != "" {
-		key, err := ssh.ParsePublicKey([]byte(config.HostKey.ValueString()))
+		key, err := hostKeyFromPublicKey([]byte(config.HostKey.ValueString()))
 		if err != nil {
 			return SSHClient{}, err
 		}
@@ -60,9 +60,9 @@ func NewSSHClient(ctx context.Context, config SSHConfig) (SSHClient, error) {
 		if err != nil {
 			return SSHClient{}, fmt.Errorf("cannot read host key file: %w", err)
 		}
-		key, err := ssh.ParsePublicKey(contents)
+		key, err := hostKeyFromPublicKey(contents)
 		if err != nil {
-			return SSHClient{}, err
+			return SSHClient{}, fmt.Errorf("cannot parse host key file: %w", err)
 		}
 		Config.HostKeyCallback = ssh.FixedHostKey(key)
 	} else {
@@ -251,6 +251,24 @@ func (s *SSHClient) ReadFile(path string, missingOk bool, sudo bool) (string, er
 
 func (s *SSHClient) ReadOptionalFile(path string, sudo ...bool) (string, error) {
 	return s.ReadFile(path, true, len(sudo) > 0 && sudo[0])
+}
+
+// Parses a host public key. OpenSSH stores host keys in the authorized_keys
+// text format, which is what an operator has on hand in an `*.pub` file, in
+// `ssh-keyscan` output or in a `known_hosts` entry, so that format is tried
+// first. The RFC 4253 wire encoding is still accepted afterwards so any
+// existing configuration keeps working.
+func hostKeyFromPublicKey(publicKey []byte) (ssh.PublicKey, error) {
+	if key, _, _, _, err := ssh.ParseAuthorizedKey(publicKey); err == nil {
+		return key, nil
+	}
+
+	key, err := ssh.ParsePublicKey(publicKey)
+	if err != nil {
+		return nil, fmt.Errorf("parsing host key failed: %w", err)
+	}
+
+	return key, nil
 }
 
 func signerFromPem(pemBytes []byte) (ssh.Signer, error) {
