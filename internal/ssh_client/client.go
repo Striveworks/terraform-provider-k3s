@@ -179,14 +179,8 @@ func (s *SSHClient) streamSingle(command string) error {
 		return fmt.Errorf("cannot start cmd '%s': %s", command, err)
 	}
 
-	errChan := make(chan error, 1)
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go s.logPipe(stdout, "[STDOUT]", &wg, errChan)
-	go s.logPipe(stderr, "[STDERR]", &wg, errChan)
-
 	// Wait for both output streams to finish
-	wg.Wait()
+	s.streamLogs(stdout, stderr)
 
 	// Wait for the command to finish
 	if err := session.Wait(); err != nil {
@@ -197,15 +191,40 @@ func (s *SSHClient) streamSingle(command string) error {
 	return nil
 }
 
-func (s *SSHClient) logPipe(pipe io.Reader, prefix string, wg *sync.WaitGroup, errChan chan<- error) {
+// streamLogs logs the output of both pipes until they are exhausted. tflog
+// mutates logger state stored in the context, so it must only be called from a
+// single goroutine: the pipe readers only forward lines, and every log call
+// happens here on the calling goroutine.
+func (s *SSHClient) streamLogs(stdout, stderr io.Reader) {
+	lines := make(chan string)
+	errChan := make(chan error, 2)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go scanPipe(stdout, "[STDOUT]", lines, errChan, &wg)
+	go scanPipe(stderr, "[STDERR]", lines, errChan, &wg)
+	go func() {
+		wg.Wait()
+		close(lines)
+		close(errChan)
+	}()
+
+	for line := range lines {
+		tflog.Debug(s.ctx, line)
+	}
+
+	for err := range errChan {
+		tflog.Warn(s.ctx, fmt.Sprintf("while reading ssh command output: %s", err))
+	}
+}
+
+func scanPipe(pipe io.Reader, prefix string, lines chan<- string, errChan chan<- error, wg *sync.WaitGroup) {
 	defer wg.Done()
 	scanner := bufio.NewScanner(pipe)
 	for scanner.Scan() {
-		line := scanner.Text()
-		tflog.Debug(s.ctx, fmt.Sprintf("%s %s", prefix, line))
+		lines <- fmt.Sprintf("%s %s", prefix, scanner.Text())
 	}
 
-	// Send the error to the channel (could be nil, which is fine)
 	if err := scanner.Err(); err != nil {
 		errChan <- fmt.Errorf("%s: %w", prefix, err)
 	}

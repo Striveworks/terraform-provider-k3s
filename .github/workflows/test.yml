@@ -30,6 +30,18 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: latest
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: "go.mod"
+          cache: true
+      - name: Unit tests
+        run: go test -race ./internal/k3s/... ./internal/schemas/... ./internal/ssh_client/...
   test:
     name: Test (${{ matrix.distro }})
     runs-on: ubuntu-latest
