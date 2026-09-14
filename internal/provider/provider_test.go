@@ -335,15 +335,10 @@ func sanitizeDockerfileName(name string) string {
 	return string(cleaned)
 }
 
-func k3sAcceptanceEnvBlock(dockerfile string) string {
-	if dockerfile != "Dockerfile.rocky10" {
-		return ""
-	}
-
+func k3sAcceptanceEnvBlock() string {
 	return `
 	env = {
-		INSTALL_K3S_SKIP_SELINUX_RPM = "true"
-		INSTALL_K3S_SELINUX_WARN     = "true"
+		INSTALL_K3S_SKIP_DOWNLOAD = "true"
 	}
 `
 }

@@ -126,7 +126,7 @@ func runAccK3sServerResource(t *testing.T, dockerfile string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	envBlock := k3sAcceptanceEnvBlock(dockerfile)
+	envBlock := k3sAcceptanceEnvBlock()
 
 	singleK3sServer := fmt.Sprintf(`
 provider "k3s" {}
@@ -262,6 +262,7 @@ func TestAccK3sServerResourceOrphan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	envBlock := k3sAcceptanceEnvBlock()
 
 	k3sServer := fmt.Sprintf(`
 provider "k3s" {}
@@ -273,6 +274,7 @@ resource k3s_server "main" {
 		password                     = "rootpassword"
 		port                         = %d
 	}
+%s
 
 	orphan = true
 
@@ -288,7 +290,7 @@ resource k3s_server "main" {
 	  - localhost
 	YAML
 }
-`, server.Port)
+`, server.Port, envBlock)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -332,6 +334,7 @@ func TestAccK3sServerResourceHA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	envBlock := k3sAcceptanceEnvBlock()
 
 	haK3sServers := fmt.Sprintf(`
 provider "k3s" {}
@@ -343,6 +346,7 @@ resource k3s_server "init" {
 		password                     = "rootpassword",
 		port                         = %d
 	}
+%s
 
 	config = <<-YAML
 	disable:
@@ -368,6 +372,7 @@ resource k3s_server "join_1" {
 		password                     = "rootpassword",
 		port                         = %d
 	}
+%s
 
 	config = <<-YAML
 	disable:
@@ -394,6 +399,7 @@ resource k3s_server "join_2" {
 		password                     = "rootpassword",
 		port                         = %d
 	}
+%s
 
 	config = <<-YAML
 	disable:
@@ -414,7 +420,7 @@ resource k3s_server "join_2" {
 
 	depends_on = [k3s_server.join_1]
 }
-`, initServer.Port, initServer.ContainerIP, joinServer1.Port, joinServer1.ContainerIP, initServer.ContainerIP, joinServer2.Port, joinServer2.ContainerIP, initServer.ContainerIP)
+`, initServer.Port, envBlock, initServer.ContainerIP, joinServer1.Port, envBlock, joinServer1.ContainerIP, initServer.ContainerIP, joinServer2.Port, envBlock, joinServer2.ContainerIP, initServer.ContainerIP)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,

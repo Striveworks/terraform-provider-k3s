@@ -1,5 +1,7 @@
 FROM ubuntu:24.04
 
+ARG K3S_VERSION=v1.36.4+k3s1
+
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -18,6 +20,24 @@ RUN apt-get update && apt-get install -y \
     sudo \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Download k3s once when building the shared acceptance-test image. Resources
+# created from this image configure the existing binary without downloading it.
+RUN set -eux; \
+    case "$(uname -m)" in \
+        x86_64) k3s_asset="k3s"; checksum_asset="sha256sum-amd64.txt" ;; \
+        aarch64) k3s_asset="k3s-arm64"; checksum_asset="sha256sum-arm64.txt" ;; \
+        armv7l) k3s_asset="k3s-armhf"; checksum_asset="sha256sum-arm.txt" ;; \
+        *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    release_url="https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION}"; \
+    curl -fsSL --retry 5 --retry-all-errors "${release_url}/${checksum_asset}" -o /tmp/k3s.sha256; \
+    curl -fsSL --retry 5 --retry-all-errors "${release_url}/${k3s_asset}" -o /usr/local/bin/k3s; \
+    expected="$(awk -v asset="${k3s_asset}" '$2 == asset { print $1 }' /tmp/k3s.sha256)"; \
+    test -n "${expected}"; \
+    echo "${expected}  /usr/local/bin/k3s" | sha256sum -c -; \
+    chmod 0755 /usr/local/bin/k3s; \
+    rm /tmp/k3s.sha256
 
 # Configure SSHD
 RUN mkdir /var/run/sshd \
