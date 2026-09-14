@@ -41,6 +41,33 @@ func TestSSHClient_streamLogsIsRaceFree(t *testing.T) {
 	}
 }
 
+// A failing command reports its stderr, capped to the most recent lines, so
+// the reason does not stay buried in debug-level logs.
+func TestSSHClient_streamLogsReturnsStderrTail(t *testing.T) {
+	ctx := tfsdklog.NewRootProviderLogger(context.Background(), tfsdklog.WithLevel(0))
+	client := SSHClient{ctx: ctx}
+
+	stdout := strings.NewReader(repeatLines("stdout line", 5))
+	stderr := strings.NewReader(repeatLines("stderr line", stderrTailLines+5))
+
+	tail := client.streamLogs(stdout, stderr)
+
+	if len(tail) != stderrTailLines {
+		t.Fatalf("tail length = %d, want %d", len(tail), stderrTailLines)
+	}
+	if want := fmt.Sprintf("stderr line %d", stderrTailLines+4); tail[len(tail)-1] != want {
+		t.Errorf("last tail line = %q, want %q", tail[len(tail)-1], want)
+	}
+	if want := "stderr line 5"; tail[0] != want {
+		t.Errorf("first tail line = %q, want %q", tail[0], want)
+	}
+	for _, line := range tail {
+		if strings.Contains(line, "stdout") {
+			t.Errorf("stdout leaked into stderr tail: %q", line)
+		}
+	}
+}
+
 // Both pipes can report a read error, which must not block the readers.
 func TestSSHClient_streamLogsHandlesPipeErrors(t *testing.T) {
 	ctx := tfsdklog.NewRootProviderLogger(context.Background(), tfsdklog.WithLevel(0))

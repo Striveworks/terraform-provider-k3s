@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -180,53 +181,84 @@ func (s *SSHClient) streamSingle(command string) error {
 	}
 
 	// Wait for both output streams to finish
-	s.streamLogs(stdout, stderr)
+	stderrTail := s.streamLogs(stdout, stderr)
 
 	// Wait for the command to finish
 	if err := session.Wait(); err != nil {
 		tflog.Error(s.ctx, fmt.Sprintf("cannot run cmd '%s': %s", command, err))
-		return fmt.Errorf("cannot run cmd, see error logs") // Mask error command to prevent secret leakage
+		// The command itself can carry secrets (tokens, passwords), so only its
+		// error output is reported back.
+		if len(stderrTail) > 0 {
+			return fmt.Errorf("cannot run cmd (%s), last error output:\n%s", err, strings.Join(stderrTail, "\n"))
+		}
+		return fmt.Errorf("cannot run cmd (%s), no error output; see debug logs", err)
 	}
 
 	return nil
 }
 
-// streamLogs logs the output of both pipes until they are exhausted. tflog
+// Number of stderr lines kept to report back when a command fails.
+const stderrTailLines = 20
+
+// streamLogs logs the output of both pipes until they are exhausted, and
+// returns the tail of stderr so a failing command can explain itself. tflog
 // mutates logger state stored in the context, so it must only be called from a
 // single goroutine: the pipe readers only forward lines, and every log call
 // happens here on the calling goroutine.
-func (s *SSHClient) streamLogs(stdout, stderr io.Reader) {
-	lines := make(chan string)
+func (s *SSHClient) streamLogs(stdout, stderr io.Reader) []string {
+	lines := make(chan pipeLine)
 	errChan := make(chan error, 2)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go scanPipe(stdout, "[STDOUT]", lines, errChan, &wg)
-	go scanPipe(stderr, "[STDERR]", lines, errChan, &wg)
+	go scanPipe(stdout, false, lines, errChan, &wg)
+	go scanPipe(stderr, true, lines, errChan, &wg)
 	go func() {
 		wg.Wait()
 		close(lines)
 		close(errChan)
 	}()
 
+	var stderrTail []string
 	for line := range lines {
-		tflog.Debug(s.ctx, line)
+		tflog.Debug(s.ctx, fmt.Sprintf("%s %s", line.prefix(), line.text))
+
+		if line.stderr {
+			stderrTail = append(stderrTail, line.text)
+			if len(stderrTail) > stderrTailLines {
+				stderrTail = stderrTail[1:]
+			}
+		}
 	}
 
 	for err := range errChan {
 		tflog.Warn(s.ctx, fmt.Sprintf("while reading ssh command output: %s", err))
 	}
+
+	return stderrTail
 }
 
-func scanPipe(pipe io.Reader, prefix string, lines chan<- string, errChan chan<- error, wg *sync.WaitGroup) {
+type pipeLine struct {
+	text   string
+	stderr bool
+}
+
+func (l pipeLine) prefix() string {
+	if l.stderr {
+		return "[STDERR]"
+	}
+	return "[STDOUT]"
+}
+
+func scanPipe(pipe io.Reader, isStderr bool, lines chan<- pipeLine, errChan chan<- error, wg *sync.WaitGroup) {
 	defer wg.Done()
 	scanner := bufio.NewScanner(pipe)
 	for scanner.Scan() {
-		lines <- fmt.Sprintf("%s %s", prefix, scanner.Text())
+		lines <- pipeLine{text: scanner.Text(), stderr: isStderr}
 	}
 
 	if err := scanner.Err(); err != nil {
-		errChan <- fmt.Errorf("%s: %w", prefix, err)
+		errChan <- fmt.Errorf("%s: %w", pipeLine{stderr: isStderr}.prefix(), err)
 	}
 }
 
