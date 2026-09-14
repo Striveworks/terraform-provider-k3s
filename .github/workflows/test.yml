@@ -62,20 +62,7 @@ jobs:
           go-version-file: "go.mod"
           cache: true
       - name: Acceptance tests
-        env:
-          # Capture provider debug logs so failures streamed over SSH can be
-          # diagnosed from the run artifacts.
-          TF_ACC_LOG: debug
-          TF_ACC_LOG_PATH: ${{ runner.temp }}/terraform-acc.log
         run: TF_ACC=1 go test ./internal/provider -run '${{ matrix.run }}' -timeout 20m -v
-      - name: Upload provider logs
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: acceptance-logs-${{ matrix.distro }}
-          path: ${{ runner.temp }}/terraform-acc.log
-          if-no-files-found: warn
-          retention-days: 7
   generate:
     runs-on: ubuntu-latest
     steps:

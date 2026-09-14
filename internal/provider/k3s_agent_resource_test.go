@@ -43,7 +43,7 @@ func runAccK3sAgentResource(t *testing.T, dockerfile string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	envBlock := k3sAcceptanceEnvBlock(dockerfile)
+	envBlock := k3sAcceptanceEnvBlock()
 
 	k3sAgent := fmt.Sprintf(`
 provider "k3s" {}
@@ -200,6 +200,7 @@ func TestAccK3sAgentResourceOrphan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	envBlock := k3sAcceptanceEnvBlock()
 
 	k3sAgent := fmt.Sprintf(`
 provider "k3s" {}
@@ -211,6 +212,7 @@ resource k3s_server "main" {
 		password                     = "rootpassword"
 		port                         = %d
 	}
+%s
 
 	config = <<-YAML
 	disable-agent: true
@@ -233,6 +235,7 @@ resource k3s_agent "main" {
 		password                     = "rootpassword"
 		port                         = %d
 	}
+%s
 
 	orphan = true
 	server = "https://%s:6443"
@@ -244,7 +247,7 @@ resource k3s_agent "main" {
 	  - acc-role=agent-orphan
 	YAML
 }
-`, server.Port, server.ContainerIP, agent.Port, server.ContainerIP)
+`, server.Port, envBlock, server.ContainerIP, agent.Port, envBlock, server.ContainerIP)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
