@@ -156,7 +156,9 @@ func (s *Server) Install(ctx context.Context, client ssh_client.SSHClient) error
 			return err
 		}
 		s.Token = token
-		tflog.MaskMessageStrings(ctx, s.Token)
+		if s.Token != "" {
+			ctx = tflog.MaskMessageStrings(ctx, s.Token)
+		}
 	}
 
 	// Retrieve kubeconfig
@@ -164,8 +166,9 @@ func (s *Server) Install(ctx context.Context, client ssh_client.SSHClient) error
 	if err != nil {
 		return err
 	}
-	tflog.MaskMessageStrings(ctx, kubeConfig)
+	ctx = tflog.MaskMessageStrings(ctx, kubeConfig)
 	s.KubeConfig = kubeConfig
+	tflog.Debug(ctx, "Retrieved k3s server token and kubeconfig")
 
 	return nil
 }
@@ -252,14 +255,17 @@ func (s *Server) Refresh(ctx context.Context, client ssh_client.SSHClient) (exis
 		return true, active, err
 	}
 	s.Token = token
-	tflog.MaskLogStrings(ctx, s.Token)
+	if s.Token != "" {
+		ctx = tflog.MaskLogStrings(ctx, s.Token)
+	}
 
 	kubeConfig, err := s.getKubeConfig(client)
 	if err != nil {
 		return true, active, err
 	}
 	s.KubeConfig = kubeConfig
-	tflog.MaskLogStrings(ctx, s.KubeConfig)
+	ctx = tflog.MaskLogStrings(ctx, s.KubeConfig)
+	tflog.Debug(ctx, "Refreshed k3s server token and kubeconfig")
 
 	return true, active, nil
 }

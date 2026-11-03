@@ -142,6 +142,12 @@ func (k *K3sAgentResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
+	// Mask the token before creating the ssh client: the client captures this
+	// ctx and uses it for all of its own logging.
+	if data.Token.ValueString() != "" {
+		ctx = tflog.MaskMessageStrings(ctx, data.Token.ValueString())
+	}
+
 	sshClient, err := ssh_client.NewSSHClient(ctx, sshConfig)
 	if err != nil {
 		resp.Diagnostics.AddError("creating ssh client", err.Error())
@@ -155,10 +161,6 @@ func (k *K3sAgentResource) Create(ctx context.Context, req resource.CreateReques
 		if resp.Diagnostics.HasError() {
 			return
 		}
-	}
-
-	if data.Token.ValueString() != "" {
-		tflog.MaskMessageStrings(ctx, data.Token.ValueString())
 	}
 
 	agent := k3s.Agent{
@@ -384,6 +386,12 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
+	// Mask the token before creating the ssh client: the client captures this
+	// ctx and uses it for all of its own logging.
+	if data.Token.ValueString() != "" {
+		ctx = tflog.MaskMessageStrings(ctx, data.Token.ValueString())
+	}
+
 	sshClient, err := ssh_client.NewSSHClient(ctx, sshConfig)
 	if err != nil {
 		resp.Diagnostics.AddError("creating ssh client", err.Error())
@@ -397,10 +405,6 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 		if resp.Diagnostics.HasError() {
 			return
 		}
-	}
-
-	if data.Token.ValueString() != "" {
-		tflog.MaskMessageStrings(ctx, data.Token.ValueString())
 	}
 
 	agent := k3s.Agent{

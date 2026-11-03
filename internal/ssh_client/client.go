@@ -110,7 +110,10 @@ func (s *SSHClient) Run(commands ...string) (results []string, err error) {
 		if err != nil {
 			return results, fmt.Errorf("cannot start cmd '%s': %s", cmd, err)
 		}
-		tflog.Debug(s.ctx, fmt.Sprintf("Running bash command: %v with result: %v", cmd, result))
+		// Results are deliberately not logged: ReadFile goes through here, so
+		// they can contain secrets (cluster token, kubeconfig) that are not
+		// known ahead of time and therefore cannot be masked.
+		tflog.Debug(s.ctx, fmt.Sprintf("Running bash command: %v", cmd))
 		results = append(results, result)
 	}
 

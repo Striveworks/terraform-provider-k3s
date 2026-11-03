@@ -74,7 +74,7 @@ func (r *K3sTokenResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	tflog.MaskMessageStrings(ctx, token)
+	ctx = tflog.MaskMessageStrings(ctx, token)
 
 	data := K3sTokenModel{
 		Id:    types.StringValue(k3sTokenID(token)),
@@ -99,7 +99,7 @@ func (r *K3sTokenResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	tflog.MaskMessageStrings(ctx, token)
+	ctx = tflog.MaskMessageStrings(ctx, token)
 
 	data.Id = types.StringValue(k3sTokenID(token))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -119,7 +119,7 @@ func (r *K3sTokenResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	tflog.MaskMessageStrings(ctx, token)
+	ctx = tflog.MaskMessageStrings(ctx, token)
 
 	data.Id = types.StringValue(k3sTokenID(token))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -136,7 +136,7 @@ func (r *K3sTokenResource) ImportState(ctx context.Context, req resource.ImportS
 		return
 	}
 
-	tflog.MaskMessageStrings(ctx, token)
+	ctx = tflog.MaskMessageStrings(ctx, token)
 
 	data := K3sTokenModel{
 		Id:    types.StringValue(k3sTokenID(token)),
