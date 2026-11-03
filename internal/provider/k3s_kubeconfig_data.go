@@ -152,11 +152,11 @@ func populateKubeConfigData(ctx context.Context, data *K3sKubeConfigDataModel, s
 		clusterAuth.UpdateHost(data.Hostname.ValueString())
 	}
 
+	ctx = tflog.MaskMessageStrings(ctx, kubeconfig, clusterAuth.KubeConfig())
 	data.Auth = sshConfig.ToObject(ctx)
 	data.ClusterAuth = clusterAuth.ToObject(ctx)
 	data.KubeConfig = types.StringValue(clusterAuth.KubeConfig())
 	data.K3sURL = clusterAuth.Server
-	tflog.MaskMessageStrings(ctx, data.KubeConfig.ValueString())
 
 	return nil
 }

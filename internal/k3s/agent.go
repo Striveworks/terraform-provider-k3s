@@ -33,7 +33,7 @@ type Agent struct {
 // Install implements [K3sComponent].
 func (a *Agent) Install(ctx context.Context, client ssh_client.SSHClient) error {
 	if a.Token != "" {
-		tflog.MaskMessageStrings(ctx, a.Token)
+		ctx = tflog.MaskMessageStrings(ctx, a.Token)
 	}
 
 	commands := []string{
@@ -42,6 +42,7 @@ func (a *Agent) Install(ctx context.Context, client ssh_client.SSHClient) error 
 		"sudo systemctl --no-block start k3s-agent",
 	}
 
+	tflog.Debug(ctx, "Installing k3s agent")
 	if err := client.RunStream(commands); err != nil {
 		return err
 	}
@@ -127,13 +128,14 @@ func (a *Agent) Refresh(ctx context.Context, client ssh_client.SSHClient) (exist
 		return true, active, fmt.Errorf("could not find agent token")
 	}
 	a.Token = token
-	tflog.MaskLogStrings(ctx, a.Token)
+	ctx = tflog.MaskLogStrings(ctx, a.Token)
 
 	server, ok := agentEnv["K3S_URL"]
 	if !ok || server == "" {
 		return true, active, fmt.Errorf("could not find server url")
 	}
 	a.Server = server
+	tflog.Debug(ctx, "Refreshed k3s agent token and server url")
 
 	return true, active, nil
 }
@@ -200,7 +202,7 @@ func (a *Agent) Update(ctx context.Context, client ssh_client.SSHClient) error {
 	}
 
 	if a.Token != "" {
-		tflog.MaskMessageStrings(ctx, a.Token)
+		ctx = tflog.MaskMessageStrings(ctx, a.Token)
 	}
 
 	commands := []string{
@@ -209,6 +211,7 @@ func (a *Agent) Update(ctx context.Context, client ssh_client.SSHClient) error {
 		"sudo systemctl --no-block restart k3s-agent",
 	}
 
+	tflog.Debug(ctx, "Updating k3s agent")
 	if err := client.RunStream(commands); err != nil {
 		return err
 	}
