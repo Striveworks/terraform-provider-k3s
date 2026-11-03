@@ -2,6 +2,7 @@ package ssh_client
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -46,14 +47,15 @@ func NewSSHClient(ctx context.Context, config SSHConfig) (SSHClient, error) {
 	}
 
 	Config := ssh.ClientConfig{
-		User: config.User.ValueString(),
-		Auth: auths,
+		User:    config.User.ValueString(),
+		Auth:    auths,
+		Timeout: 30 * time.Second,
 	}
 
 	if config.HostKey.ValueString() != "" {
-		key, err := ssh.ParsePublicKey([]byte(config.HostKey.ValueString()))
+		key, err := parseHostKey([]byte(config.HostKey.ValueString()))
 		if err != nil {
-			return SSHClient{}, err
+			return SSHClient{}, fmt.Errorf("parsing host key: %w", err)
 		}
 		Config.HostKeyCallback = ssh.FixedHostKey(key)
 	} else if config.HostKeyFile.ValueString() != "" {
@@ -61,9 +63,9 @@ func NewSSHClient(ctx context.Context, config SSHConfig) (SSHClient, error) {
 		if err != nil {
 			return SSHClient{}, fmt.Errorf("cannot read host key file: %w", err)
 		}
-		key, err := ssh.ParsePublicKey(contents)
+		key, err := parseHostKey(contents)
 		if err != nil {
-			return SSHClient{}, err
+			return SSHClient{}, fmt.Errorf("parsing host key file %s: %w", config.HostKeyFile.ValueString(), err)
 		}
 		Config.HostKeyCallback = ssh.FixedHostKey(key)
 	} else {
@@ -77,6 +79,22 @@ func NewSSHClient(ctx context.Context, config SSHConfig) (SSHClient, error) {
 		Port:                int(config.Port.ValueInt32()),
 		Config:              Config,
 	}, nil
+}
+
+// parseHostKey parses a user-supplied SSH host public key. It accepts the
+// authorized_keys format produced by ssh-keygen and ssh-keyscan
+// ("ssh-ed25519 AAAA... comment") and, as a fallback, a known_hosts line
+// ("example.com ssh-ed25519 AAAA...").
+func parseHostKey(contents []byte) (ssh.PublicKey, error) {
+	key, _, _, _, authErr := ssh.ParseAuthorizedKey(contents)
+	if authErr == nil {
+		return key, nil
+	}
+	_, _, key, _, _, knownErr := ssh.ParseKnownHosts(contents)
+	if knownErr == nil {
+		return key, nil
+	}
+	return nil, fmt.Errorf("not an authorized_keys format key (%v) or a known_hosts line (%v)", authErr, knownErr)
 }
 
 type SSHClient struct {
@@ -108,7 +126,7 @@ func (s *SSHClient) Run(commands ...string) (results []string, err error) {
 	for _, cmd := range commands {
 		result, err := s.runSingle(cmd)
 		if err != nil {
-			return results, fmt.Errorf("cannot start cmd '%s': %s", cmd, err)
+			return results, err
 		}
 		tflog.Debug(s.ctx, fmt.Sprintf("Running bash command: %v with result: %v", cmd, result))
 		results = append(results, result)
@@ -131,13 +149,35 @@ func (s *SSHClient) runSingle(command string) (result string, err error) {
 	}
 	defer session.Close()
 
-	out, err := session.CombinedOutput(command)
-	if err != nil {
-		return result, fmt.Errorf("cannot start cmd '%s': %s", command, err)
-	}
-	result = string(out)
+	// Keep stdout and stderr separate: callers parse stdout for exact
+	// sentinel values, which stderr noise (e.g. sudo warnings) would corrupt.
+	var stdout, stderr bytes.Buffer
+	session.Stdout = &stdout
+	session.Stderr = &stderr
 
-	return
+	if err := session.Run(command); err != nil {
+		if tail := tailLines(stderr.String(), stderrTailLines); tail != "" {
+			return result, fmt.Errorf("running cmd '%s': %s, last error output:\n%s", command, err, tail)
+		}
+		return result, fmt.Errorf("running cmd '%s': %s, no error output", command, err)
+	}
+
+	return stdout.String(), nil
+}
+
+// tailLines returns at most the last n lines of output, trimmed of
+// surrounding whitespace, so a failing command can explain itself without
+// dumping everything.
+func tailLines(output string, n int) string {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return ""
+	}
+	lines := strings.Split(output, "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Runs a set of commands, streaming their output to a callbacks
@@ -284,15 +324,7 @@ func (s *SSHClient) WaitForReady() error {
 }
 
 func (s *SSHClient) ReadFile(path string, missingOk bool, sudo bool) (string, error) {
-	command := fmt.Sprintf("cat %s", path)
-	if sudo {
-		command = fmt.Sprintf("sudo %s", command)
-	}
-	if missingOk {
-		command = fmt.Sprintf("sudo [ -f %s ] && %s || echo ''", path, command)
-	}
-
-	result, err := s.Run(command)
+	result, err := s.Run(readFileCommand(path, missingOk, sudo))
 	if err != nil {
 		return "", err
 	}
@@ -300,8 +332,18 @@ func (s *SSHClient) ReadFile(path string, missingOk bool, sudo bool) (string, er
 	return result[0], nil
 }
 
-func (s *SSHClient) ReadOptionalFile(path string, sudo ...bool) (string, error) {
-	return s.ReadFile(path, true, len(sudo) > 0 && sudo[0])
+// readFileCommand builds the remote command used by ReadFile. With missingOk,
+// a missing file must produce truly empty output ("|| true"), because callers
+// compare the result against "" to detect absence.
+func readFileCommand(path string, missingOk, sudo bool) string {
+	command := fmt.Sprintf("cat %s", path)
+	if sudo {
+		command = fmt.Sprintf("sudo %s", command)
+	}
+	if missingOk {
+		command = fmt.Sprintf("sudo [ -f %s ] && %s || true", path, command)
+	}
+	return command
 }
 
 func signerFromPem(pemBytes []byte) (ssh.Signer, error) {

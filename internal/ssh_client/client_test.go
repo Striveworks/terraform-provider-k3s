@@ -2,14 +2,18 @@ package ssh_client
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"strings"
 	"testing"
 	"time"
 
+	tftypes "github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/hashicorp/terraform-plugin-log/tfsdklog"
+	"golang.org/x/crypto/ssh"
 )
 
 // tflog stores masking configuration and logger fields in the context and
@@ -101,3 +105,116 @@ func repeatLines(prefix string, count int) string {
 }
 
 var _ io.Reader = failingReader{}
+
+// Users supply host keys as text (authorized_keys format from ssh-keyscan, or
+// a known_hosts line), not SSH binary wire format, so NewSSHClient must accept
+// both text formats.
+func TestNewSSHClient_hostKeyFormats(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generating ed25519 key: %v", err)
+	}
+	sshPub, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatalf("converting to ssh public key: %v", err)
+	}
+	authorizedKey := string(ssh.MarshalAuthorizedKey(sshPub))
+
+	cases := []struct {
+		name    string
+		hostKey string
+		wantErr bool
+	}{
+		{name: "authorized_keys format", hostKey: authorizedKey},
+		{name: "known_hosts format", hostKey: "example.com " + authorizedKey},
+		{name: "garbage", hostKey: "not a valid key", wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			config := SSHConfig{
+				User:    tftypes.StringValue("root"),
+				Host:    tftypes.StringValue("example.com"),
+				Port:    tftypes.Int32Value(22),
+				HostKey: tftypes.StringValue(tc.hostKey),
+			}
+
+			client, err := NewSSHClient(context.Background(), config)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("NewSSHClient accepted an unparseable host key")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NewSSHClient: %v", err)
+			}
+			if client.Config.HostKeyCallback == nil {
+				t.Fatal("expected a host key callback to be configured")
+			}
+			if err := client.Config.HostKeyCallback("example.com:22", nil, sshPub); err != nil {
+				t.Errorf("host key callback rejected the configured key: %v", err)
+			}
+		})
+	}
+}
+
+// A hung host must not block an apply for the OS TCP timeout.
+func TestNewSSHClient_setsDialTimeout(t *testing.T) {
+	config := SSHConfig{
+		User: tftypes.StringValue("root"),
+		Host: tftypes.StringValue("example.com"),
+		Port: tftypes.Int32Value(22),
+	}
+
+	client, err := NewSSHClient(context.Background(), config)
+	if err != nil {
+		t.Fatalf("NewSSHClient: %v", err)
+	}
+	if client.Config.Timeout != 30*time.Second {
+		t.Errorf("Config.Timeout = %v, want %v", client.Config.Timeout, 30*time.Second)
+	}
+}
+
+// With missingOk, a missing file must produce truly empty output: callers
+// compare the result against "" to detect absence, and the old fallback of
+// echoing an empty string emitted a newline instead.
+func TestReadFileCommand(t *testing.T) {
+	const path = "/etc/rancher/k3s/config.yaml"
+
+	cases := []struct {
+		name      string
+		missingOk bool
+		sudo      bool
+		want      string
+	}{
+		{
+			name: "plain",
+			want: "cat " + path,
+		},
+		{
+			name: "sudo",
+			sudo: true,
+			want: "sudo cat " + path,
+		},
+		{
+			name:      "missingOk",
+			missingOk: true,
+			want:      "sudo [ -f " + path + " ] && cat " + path + " || true",
+		},
+		{
+			name:      "missingOk sudo",
+			missingOk: true,
+			sudo:      true,
+			want:      "sudo [ -f " + path + " ] && sudo cat " + path + " || true",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := readFileCommand(path, tc.missingOk, tc.sudo); got != tc.want {
+				t.Errorf("readFileCommand(%q, %v, %v) = %q, want %q", path, tc.missingOk, tc.sudo, got, tc.want)
+			}
+		})
+	}
+}
