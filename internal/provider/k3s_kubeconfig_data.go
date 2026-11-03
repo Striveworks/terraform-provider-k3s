@@ -149,7 +149,9 @@ func populateKubeConfigData(ctx context.Context, data *K3sKubeConfigDataModel, s
 	}
 
 	if !data.Hostname.IsNull() && !data.Hostname.IsUnknown() && data.Hostname.ValueString() != "" {
-		clusterAuth.UpdateHost(data.Hostname.ValueString())
+		if err := clusterAuth.UpdateHost(data.Hostname.ValueString()); err != nil {
+			return fmt.Errorf("updating kubeconfig host: %w", err)
+		}
 	}
 
 	data.Auth = sshConfig.ToObject(ctx)

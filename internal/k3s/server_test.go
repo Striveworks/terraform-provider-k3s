@@ -2,10 +2,13 @@ package k3s
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"k8s.io/client-go/tools/clientcmd"
 	"striveworks.us/terraform-provider-k3s/internal/schemas"
 )
 
@@ -134,5 +137,79 @@ go version go1.23.10
 func TestParseK3sVersionOutputError(t *testing.T) {
 	if _, err := parseK3sVersionOutput("go version go1.23.10"); err == nil {
 		t.Fatalf("parseK3sVersionOutput() expected error")
+	}
+}
+
+// buildTestKubeconfig returns a minimal kubeconfig whose cluster, user, and
+// context all use the given name. Certificate fields are base64 encoded in
+// the YAML, as clientcmd expects.
+func buildTestKubeconfig(name string) string {
+	b64 := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	ca := "-----BEGIN CERTIFICATE-----\nca-data\n-----END CERTIFICATE-----\n"
+	cert := "-----BEGIN CERTIFICATE-----\nclient-cert-data\n-----END CERTIFICATE-----\n"
+	key := "-----BEGIN EC PRIVATE KEY-----\nclient-key-data\n-----END EC PRIVATE KEY-----\n"
+
+	return fmt.Sprintf(`apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    certificate-authority-data: %[1]s
+    server: https://127.0.0.1:6443
+  name: %[2]s
+contexts:
+- context:
+    cluster: %[2]s
+    user: %[2]s
+  name: %[2]s
+current-context: %[2]s
+users:
+- name: %[2]s
+  user:
+    client-certificate-data: %[3]s
+    client-key-data: %[4]s
+`, b64(ca), name, b64(cert), b64(key))
+}
+
+func TestUpdateKubeConfigServerURL(t *testing.T) {
+	cases := []struct {
+		host string
+		want string
+	}{
+		{host: "1.2.3.4:22", want: "https://1.2.3.4:6443"},
+		// Regression: must not become https://1.2.3.422:6443.
+		{host: "1.2.3.4:2222", want: "https://1.2.3.4:6443"},
+		{host: "localhost:55000", want: "https://localhost:6443"},
+		// IPv6 hosts must stay bracketed.
+		{host: "[::1]:22", want: "https://[::1]:6443"},
+		// Fallback when the host has no port.
+		{host: "1.2.3.4", want: "https://1.2.3.4:6443"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.host, func(t *testing.T) {
+			updated, err := updateKubeConfig(buildTestKubeconfig("default"), tc.host)
+			if err != nil {
+				t.Fatalf("updateKubeConfig() error = %v", err)
+			}
+
+			config, err := clientcmd.Load([]byte(updated))
+			if err != nil {
+				t.Fatalf("clientcmd.Load() error = %v", err)
+			}
+
+			if got := config.Clusters["default"].Server; got != tc.want {
+				t.Errorf("server = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUpdateKubeConfigMissingDefaultCluster(t *testing.T) {
+	_, err := updateKubeConfig(buildTestKubeconfig("prod"), "1.2.3.4:22")
+	if err == nil {
+		t.Fatalf("updateKubeConfig() expected error for kubeconfig without a \"default\" cluster")
+	}
+	if !strings.Contains(err.Error(), "default") {
+		t.Errorf("error = %q, want mention of missing \"default\" cluster", err.Error())
 	}
 }
