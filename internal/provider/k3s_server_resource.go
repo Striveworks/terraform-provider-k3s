@@ -640,7 +640,7 @@ func parseServerImportID(rawID string) (ssh_client.SSHConfig, string, error) {
 	}
 
 	if parsed.Scheme != "ssh" {
-		return ssh_client.SSHConfig{}, "", fmt.Errorf("expected import id in the form ssh://user@host[:port]?password=<passworod> or ssh://user@host[:port]?private_key_file=<path>")
+		return ssh_client.SSHConfig{}, "", fmt.Errorf("expected import id in the form ssh://user@host[:port]?password=<password> or ssh://user@host[:port]?private_key_file=<path>")
 	}
 
 	if parsed.User == nil || parsed.User.Username() == "" {

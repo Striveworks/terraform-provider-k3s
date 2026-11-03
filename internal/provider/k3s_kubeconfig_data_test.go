@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	datasourceschema "github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 
@@ -137,6 +139,23 @@ func TestSetEmptyKubeConfigData(t *testing.T) {
 	}
 	if got, want := stateAuth.Host.ValueString(), "example.com"; got != want {
 		t.Errorf("stateAuth.Host = %q, want %q", got, want)
+	}
+}
+
+func TestK3sKubeConfigDataBinDirSchema(t *testing.T) {
+	d := &K3sKubeConfigData{}
+	resp := &datasource.SchemaResponse{}
+	d.Schema(context.Background(), datasource.SchemaRequest{}, resp)
+
+	attr, ok := resp.Schema.Attributes["bin_dir"].(datasourceschema.StringAttribute)
+	if !ok {
+		t.Fatalf("bin_dir schema = %T, want datasourceschema.StringAttribute", resp.Schema.Attributes["bin_dir"])
+	}
+	if !attr.IsOptional() {
+		t.Error("bin_dir should be optional")
+	}
+	if attr.IsRequired() {
+		t.Error("bin_dir should not be required")
 	}
 }
 

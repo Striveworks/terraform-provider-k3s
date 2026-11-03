@@ -8,9 +8,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int32default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
+	"striveworks.us/terraform-provider-k3s/internal/k3s"
 	"striveworks.us/terraform-provider-k3s/internal/schemas"
 )
 
@@ -26,6 +28,7 @@ type K3sKubeConfigResourceModel struct {
 	Hostname    types.String `tfsdk:"hostname"`
 	K3sURL      types.String `tfsdk:"k3s_url"`
 	AllowEmpty  types.Bool   `tfsdk:"allow_empty"`
+	BinDir      types.String `tfsdk:"bin_dir"`
 }
 
 func NewK3sKubeConfigResource() resource.Resource {
@@ -48,7 +51,13 @@ func (k *K3sKubeConfigResource) Schema(_ context.Context, _ resource.SchemaReque
 				Optional:            true,
 				Computed:            true,
 				Default:             booldefault.StaticBool(false),
-				MarkdownDescription: "If this is true, it will allow a missing kubeconfig and set null to all outputs",
+				MarkdownDescription: "If this is true, a missing k3s install on the host sets null to all outputs instead of failing. Connection or other errors still fail.",
+			},
+			"bin_dir": schema.StringAttribute{
+				Optional:            true,
+				Computed:            true,
+				Default:             stringdefault.StaticString(k3s.BIN_DIR),
+				MarkdownDescription: "Directory containing the k3s binary. Defaults to /usr/local/bin.",
 			},
 			"hostname": schema.StringAttribute{
 				Optional:            true,
@@ -145,6 +154,7 @@ func (data K3sKubeConfigResourceModel) toDataModel() K3sKubeConfigDataModel {
 		Hostname:    data.Hostname,
 		K3sURL:      data.K3sURL,
 		AllowEmpty:  data.AllowEmpty,
+		BinDir:      data.BinDir,
 	}
 }
 
@@ -155,6 +165,7 @@ func (data *K3sKubeConfigResourceModel) applyDataModel(readData K3sKubeConfigDat
 	data.Hostname = readData.Hostname
 	data.K3sURL = readData.K3sURL
 	data.AllowEmpty = readData.AllowEmpty
+	data.BinDir = readData.BinDir
 }
 
 func kubeConfigResourceSSHSchema() schema.Attribute {
