@@ -180,17 +180,22 @@ func (k *K3sAgentResource) Create(ctx context.Context, req resource.CreateReques
 		resp.Diagnostics.AddError("running k3s agent preinstall", err.Error())
 		return
 	}
+	// From this point on the remote host is mutated, so every error path must
+	// persist partial state; see saveAgentPartialState.
 	if err := agent.Install(ctx, sshClient); err != nil {
+		saveAgentPartialState(ctx, resp, &data, agent, sshClient)
 		resp.Diagnostics.AddError("running k3s agent install", err.Error())
 		return
 	}
 
 	exists, active, err := agent.Refresh(ctx, sshClient)
 	if err != nil {
+		saveAgentPartialState(ctx, resp, &data, agent, sshClient)
 		resp.Diagnostics.AddError("refreshing k3s agent", err.Error())
 		return
 	}
 	if !exists {
+		saveAgentPartialState(ctx, resp, &data, agent, sshClient)
 		resp.Diagnostics.AddError("refreshing k3s agent", fmt.Sprintf("no k3s agent found on %s after install", sshClient.Host()))
 		return
 	}
@@ -482,4 +487,23 @@ func populateAgentState(data *AgentClientModel, agent k3s.Agent, sshClient ssh_c
 	data.Server = types.StringValue(agent.Server)
 	data.Token = types.StringValue(agent.Token)
 	data.Active = types.BoolValue(active)
+}
+
+// saveAgentPartialState persists the best-known resource state when Create
+// fails after agent.Install has already mutated the remote host. When Create
+// returns error diagnostics alongside a non-null state, Terraform records the
+// resource as tainted (created, pending replacement) instead of forgetting it.
+// Without this, a transient failure after install would orphan a fully
+// installed k3s agent and the next apply would rerun a full install against
+// a dirty host. State may not contain unknown values, so computed attributes
+// that are still unknown are replaced with observed values or null.
+func saveAgentPartialState(ctx context.Context, resp *resource.CreateResponse, data *AgentClientModel, agent k3s.Agent, sshClient ssh_client.SSHClient) {
+	data.Id = types.StringValue(sshClient.Host())
+	if data.Version.IsUnknown() {
+		data.Version = optionalImportString(agent.Version)
+	}
+	if data.Active.IsUnknown() {
+		data.Active = types.BoolValue(false)
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, data)...)
 }

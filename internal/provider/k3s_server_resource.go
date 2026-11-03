@@ -184,17 +184,22 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 		resp.Diagnostics.AddError("running k3s server preinstall", err.Error())
 		return
 	}
+	// From this point on the remote host is mutated, so every error path must
+	// persist partial state; see saveServerPartialState.
 	if err := server.Install(ctx, sshClient); err != nil {
+		saveServerPartialState(ctx, resp, &data, server, oidcConfig, sshClient)
 		resp.Diagnostics.AddError("running k3s server install", err.Error())
 		return
 	}
 
 	exists, active, err := server.Refresh(ctx, sshClient)
 	if err != nil {
+		saveServerPartialState(ctx, resp, &data, server, oidcConfig, sshClient)
 		resp.Diagnostics.AddError("refreshing k3s server", err.Error())
 		return
 	}
 	if !exists {
+		saveServerPartialState(ctx, resp, &data, server, oidcConfig, sshClient)
 		resp.Diagnostics.AddError("refreshing k3s server", fmt.Sprintf("no k3s server found on %s after install", sshClient.Host()))
 		return
 	}
@@ -207,6 +212,7 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 
 	clusterAuth, err := schemas.BuildClusterAuth(server.KubeConfig)
 	if err != nil {
+		saveServerPartialState(ctx, resp, &data, server, oidcConfig, sshClient)
 		resp.Diagnostics.AddError("building cluster auth", err.Error())
 		return
 	}
@@ -214,6 +220,7 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	data.Server = clusterAuth.Server
 
 	if !setOIDCJWKSKeys(ctx, &data, oidcConfig, server, sshClient, &resp.Diagnostics) {
+		saveServerPartialState(ctx, resp, &data, server, oidcConfig, sshClient)
 		return
 	}
 
@@ -534,6 +541,47 @@ func setOIDCJWKSKeys(ctx context.Context, data *ServerClientModel, oidcConfig *s
 	oidcConfig.JWKSKeys = types.StringValue(jwksKeys)
 	data.OidcConfig = oidcConfig.ToObject(ctx)
 	return true
+}
+
+// saveServerPartialState persists the best-known resource state when Create
+// fails after server.Install has already mutated the remote host. When Create
+// returns error diagnostics alongside a non-null state, Terraform records the
+// resource as tainted (created, pending replacement) instead of forgetting it.
+// Without this, a transient failure after install would orphan a fully
+// installed k3s server and the next apply would rerun a full install against
+// a dirty host. State may not contain unknown values, so computed attributes
+// that are still unknown are replaced with observed values or null.
+func saveServerPartialState(ctx context.Context, resp *resource.CreateResponse, data *ServerClientModel, server k3s.Server, oidcConfig *schemas.OidcConfig, sshClient ssh_client.SSHClient) {
+	data.Id = types.StringValue(sshClient.Host())
+	if data.KubeConfig.IsUnknown() {
+		data.KubeConfig = optionalImportString(server.KubeConfig)
+	}
+	if data.Token.IsUnknown() {
+		data.Token = optionalImportString(server.Token)
+	}
+	if data.Version.IsUnknown() {
+		data.Version = optionalImportString(server.Version)
+	}
+	if data.Server.IsUnknown() {
+		data.Server = types.StringNull()
+	}
+	if data.Active.IsUnknown() {
+		data.Active = types.BoolValue(false)
+	}
+	if data.ClusterAuth.IsUnknown() {
+		data.ClusterAuth = types.ObjectNull(schemas.ClusterAuth{}.AttributeTypes())
+	}
+	if data.OidcConfig.IsUnknown() {
+		data.OidcConfig = types.ObjectNull(schemas.OidcConfig{}.AttributeTypes())
+	} else if !data.OidcConfig.IsNull() && oidcConfig != nil {
+		// The planned oidc object carries the unknown computed jwks_keys
+		// attribute; null it out when the keys were never fetched.
+		if oidcConfig.JWKSKeys.IsUnknown() {
+			oidcConfig.JWKSKeys = types.StringNull()
+		}
+		data.OidcConfig = oidcConfig.ToObject(ctx)
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, data)...)
 }
 
 // Schema implements resource.ResourceWithImportState.
