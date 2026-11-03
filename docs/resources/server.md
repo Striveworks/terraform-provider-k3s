@@ -288,7 +288,7 @@ Read-Only:
 
 Read-Only:
 
-- `certificate_authority_data` (String, Sensitive) Base64 encoded certificate authority data for authenticating to the Kubernetes API server.
-- `client_certificate_data` (String, Sensitive) Base64 encoded client certificate data for authenticating to the Kubernetes API server.
-- `client_key_data` (String, Sensitive) Base64 encoded client key data for authenticating to the Kubernetes API server.
+- `certificate_authority_data` (String, Sensitive) PEM-encoded certificate authority data for authenticating to the Kubernetes API server.
+- `client_certificate_data` (String, Sensitive) PEM-encoded client certificate data for authenticating to the Kubernetes API server.
+- `client_key_data` (String, Sensitive) PEM-encoded client key data for authenticating to the Kubernetes API server.
 - `server` (String) The URL of the Kubernetes API server endpoint.

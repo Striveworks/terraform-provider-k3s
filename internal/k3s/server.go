@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -370,8 +371,21 @@ func updateKubeConfig(kubeconfigText string, host string) (string, error) {
 		return "", err
 	}
 
-	this := *config.Clusters["default"]
-	this.Server = fmt.Sprintf("https://%s:6443", strings.ReplaceAll(host, ":22", ""))
+	cluster, ok := config.Clusters["default"]
+	if !ok || cluster == nil {
+		return "", fmt.Errorf("kubeconfig does not contain a cluster named %q", "default")
+	}
+
+	// host comes from the SSH client and is always in "host:port" form; strip
+	// the SSH port and point at the k3s API port instead. JoinHostPort keeps
+	// IPv6 addresses correctly bracketed.
+	hostOnly, _, err := net.SplitHostPort(host)
+	if err != nil {
+		hostOnly = host
+	}
+
+	this := *cluster
+	this.Server = "https://" + net.JoinHostPort(hostOnly, "6443")
 	config.Clusters["default"] = &this
 
 	fixed, err := clientcmd.Write(*config)
