@@ -8,7 +8,7 @@ import (
 
 func TestAgentValidateDefaultsBinDir(t *testing.T) {
 	agent := Agent{
-		Config: "data_dir: /opt/rancher/k3s\n",
+		Config: "data-dir: /opt/rancher/k3s\n",
 	}
 
 	if err := agent.Validate(context.Background()); err != nil {
@@ -37,15 +37,38 @@ func TestAgentInstallCommand(t *testing.T) {
 	command := agent.installCommand()
 	wantParts := []string{
 		"INSTALL_K3S_SKIP_START=true",
-		"INSTALL_K3S_BIN_DIR=/opt/bin",
+		"INSTALL_K3S_BIN_DIR='/opt/bin'",
 		"INSTALL_K3S_EXEC='agent --config /etc/rancher/k3s/config.yaml'",
-		"K3S_URL=https://10.0.0.1:6443",
-		"K3S_TOKEN=join-token",
-		"INSTALL_K3S_VERSION=\"v1.32.6+k3s1\"",
-		"INSTALL_K3S_CHANNEL=\"stable\"",
+		"K3S_URL='https://10.0.0.1:6443'",
+		"K3S_TOKEN='join-token'",
+		"INSTALL_K3S_VERSION='v1.32.6+k3s1'",
+		"INSTALL_K3S_CHANNEL='stable'",
 		"bash /opt/bin/k3s-install.sh",
 	}
 
+	for _, want := range wantParts {
+		if !strings.Contains(command, want) {
+			t.Errorf("installCommand() = %q, want %q", command, want)
+		}
+	}
+}
+
+func TestAgentInstallCommandQuotesValues(t *testing.T) {
+	agent := Agent{
+		Token:  "tok'en; rm -rf /",
+		Server: "https://10.0.0.1:6443/$path",
+		BinDir: "/opt/bin",
+		Env: map[string]string{
+			"HTTP_PROXY": "http://user:pa'ss word@proxy:3128",
+		},
+	}
+
+	command := agent.installCommand()
+	wantParts := []string{
+		`K3S_TOKEN='tok'\''en; rm -rf /'`,
+		"K3S_URL='https://10.0.0.1:6443/$path'",
+		`HTTP_PROXY='http://user:pa'\''ss word@proxy:3128'`,
+	}
 	for _, want := range wantParts {
 		if !strings.Contains(command, want) {
 			t.Errorf("installCommand() = %q, want %q", command, want)

@@ -82,7 +82,7 @@ func TestServerWithHaJoinCluster(t *testing.T) {
 	if !strings.Contains(command, "K3S_TOKEN='join-token'") {
 		t.Errorf("installCommand() = %q, want K3S_TOKEN flag", command)
 	}
-	if !strings.Contains(command, "INSTALL_K3S_BIN_DIR=/usr/local/bin") {
+	if !strings.Contains(command, "INSTALL_K3S_BIN_DIR='/usr/local/bin'") {
 		t.Errorf("installCommand() = %q, want default INSTALL_K3S_BIN_DIR", command)
 	}
 }
@@ -110,9 +110,145 @@ func TestServerWithHaExternalDatastore(t *testing.T) {
 	}
 }
 
-func TestShellQuote(t *testing.T) {
-	if got, want := shellQuote("token'with dollar$"), "'token'\\''with dollar$'"; got != want {
-		t.Errorf("shellQuote() = %q, want %q", got, want)
+func TestServerWithOidcMergesExistingApiServerArgs(t *testing.T) {
+	// Round-trip through Validate so the existing value is a []any,
+	// exactly as yaml.Unmarshal produces it.
+	server := Server{
+		Config: "kube-apiserver-arg:\n- audit-log-path=/var/log/audit.log\n- audit-log-maxage=30\n",
+	}
+
+	if err := server.Validate(context.Background()); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	server.WithOidc(schemas.OidcConfig{
+		Audience: types.StringValue("k3s-audience"),
+		Issuer:   types.StringValue("https://oidc.example.com"),
+	})
+
+	args, ok := server.config["kube-apiserver-arg"].([]string)
+	if !ok {
+		t.Fatalf("kube-apiserver-arg is not a []string: %#v", server.config["kube-apiserver-arg"])
+	}
+
+	wantArgs := []string{
+		"audit-log-path=/var/log/audit.log",
+		"audit-log-maxage=30",
+		"api-audiences=k3s-audience",
+		"service-account-issuer=https://oidc.example.com",
+		"service-account-issuer=k3s",
+	}
+	for _, want := range wantArgs {
+		found := false
+		for _, arg := range args {
+			if arg == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("kube-apiserver-arg = %#v, missing %q", args, want)
+		}
+	}
+	if len(args) != 8 {
+		t.Errorf("kube-apiserver-arg has %d entries, want 8: %#v", len(args), args)
+	}
+}
+
+func TestServerWithOidcSingleStringApiServerArg(t *testing.T) {
+	// k3s accepts a single string for list-valued keys.
+	server := Server{
+		Config: "kube-apiserver-arg: audit-log-path=/var/log/audit.log\n",
+	}
+
+	if err := server.Validate(context.Background()); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	server.WithOidc(schemas.OidcConfig{
+		Audience: types.StringValue("k3s-audience"),
+		Issuer:   types.StringValue("https://oidc.example.com"),
+	})
+
+	args, ok := server.config["kube-apiserver-arg"].([]string)
+	if !ok {
+		t.Fatalf("kube-apiserver-arg is not a []string: %#v", server.config["kube-apiserver-arg"])
+	}
+	if len(args) != 7 {
+		t.Fatalf("kube-apiserver-arg has %d entries, want 7: %#v", len(args), args)
+	}
+	if args[0] != "audit-log-path=/var/log/audit.log" {
+		t.Errorf("kube-apiserver-arg[0] = %q, want original arg preserved", args[0])
+	}
+}
+
+func TestServerWithOidcNoExistingApiServerArgs(t *testing.T) {
+	server := Server{}
+
+	if err := server.Validate(context.Background()); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	server.WithOidc(schemas.OidcConfig{
+		Audience: types.StringValue("k3s-audience"),
+		Issuer:   types.StringValue("https://oidc.example.com"),
+	})
+
+	args, ok := server.config["kube-apiserver-arg"].([]string)
+	if !ok {
+		t.Fatalf("kube-apiserver-arg is not a []string: %#v", server.config["kube-apiserver-arg"])
+	}
+	if len(args) != 6 {
+		t.Errorf("kube-apiserver-arg has %d entries, want 6: %#v", len(args), args)
+	}
+}
+
+func TestServerDataDir(t *testing.T) {
+	server := Server{
+		Config: "data-dir: /opt/rancher/k3s\n",
+	}
+
+	if err := server.Validate(context.Background()); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	if got, want := server.dataDir(), "/opt/rancher/k3s"; got != want {
+		t.Errorf("dataDir() = %q, want %q", got, want)
+	}
+
+	defaulted := Server{}
+	if err := defaulted.Validate(context.Background()); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if got, want := defaulted.dataDir(), DATA_DIR; got != want {
+		t.Errorf("dataDir() = %q, want %q", got, want)
+	}
+}
+
+func TestServerInstallCommandQuotesValues(t *testing.T) {
+	server := Server{
+		Token:   "tok'en with space",
+		Version: "v1.32.6+k3s1",
+		Env: map[string]string{
+			"HTTP_PROXY": "http://user:pa'ss word@proxy:3128",
+		},
+	}
+
+	if err := server.Validate(context.Background()); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	command := server.installCommand()
+	wantParts := []string{
+		`K3S_TOKEN='tok'\''en with space'`,
+		"INSTALL_K3S_VERSION='v1.32.6+k3s1'",
+		`HTTP_PROXY='http://user:pa'\''ss word@proxy:3128'`,
+		"INSTALL_K3S_BIN_DIR='/usr/local/bin'",
+	}
+	for _, want := range wantParts {
+		if !strings.Contains(command, want) {
+			t.Errorf("installCommand() = %q, want %q", command, want)
+		}
 	}
 }
 
