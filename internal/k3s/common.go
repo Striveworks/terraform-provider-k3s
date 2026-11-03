@@ -41,29 +41,34 @@ func configCommands(ctx context.Context, config map[any]any) ([]string, error) {
 	}, nil
 }
 
-// Commands for configuring server/agent registry.
-func registryCommands(ctx context.Context, registry map[any]any) (commands []string, err error) {
+// Commands for configuring server/agent registry. No commands are
+// produced when no registry is configured, so an existing host-managed
+// registries.yaml is left untouched.
+func registryCommands(ctx context.Context, registry map[any]any) ([]string, error) {
 	tflog.Debug(ctx, "Reading registries")
 
+	if len(registry) == 0 {
+		return nil, nil
+	}
+
 	registryPath := fmt.Sprintf("%s/registries.yaml", CONFIG_DIR)
-	var registryContents []byte
-	if registry != nil {
-		registryContents, err = yaml.Marshal(registry)
-		if err != nil {
-			return []string{}, err
-		}
+	registryContents, err := yaml.Marshal(registry)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(registryContents) != 0 {
-		commands = []string{
-			// Write registries file
-			fmt.Sprintf("echo %q | sudo tee %s.tmp > /dev/null", base64.StdEncoding.EncodeToString(registryContents), CONFIG_DIR),
-			fmt.Sprintf("sudo base64 -d %s.tmp | sudo tee %s > /dev/null", CONFIG_DIR, registryPath),
-			fmt.Sprintf("sudo rm %s.tmp", CONFIG_DIR),
-		}
-	}
+	return []string{
+		// Write registries file
+		fmt.Sprintf("echo %q | sudo tee %s.tmp > /dev/null", base64.StdEncoding.EncodeToString(registryContents), CONFIG_DIR),
+		fmt.Sprintf("sudo base64 -d %s.tmp | sudo tee %s > /dev/null", CONFIG_DIR, registryPath),
+		fmt.Sprintf("sudo rm %s.tmp", CONFIG_DIR),
+	}, nil
+}
 
-	return commands, err
+// shellQuote wraps a value in single quotes for safe interpolation into a
+// remote shell command, escaping any embedded single quotes.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 func k3sSystemdServiceExists(client ssh_client.SSHClient, serviceName string) (bool, error) {

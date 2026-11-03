@@ -222,25 +222,25 @@ func (a *Agent) Update(ctx context.Context, client ssh_client.SSHClient) error {
 func (a *Agent) installCommand() string {
 	flags := []string{
 		"INSTALL_K3S_SKIP_START=true",
-		fmt.Sprintf("INSTALL_K3S_BIN_DIR=%s", a.BinDir),
+		fmt.Sprintf("INSTALL_K3S_BIN_DIR=%s", shellQuote(a.BinDir)),
 		fmt.Sprintf("INSTALL_K3S_EXEC='agent --config %s/config.yaml'", CONFIG_DIR),
-		fmt.Sprintf("K3S_URL=%s", a.Server),
-		fmt.Sprintf("K3S_TOKEN=%s", a.Token),
+		fmt.Sprintf("K3S_URL=%s", shellQuote(a.Server)),
+		fmt.Sprintf("K3S_TOKEN=%s", shellQuote(a.Token)),
 	}
 
 	if a.Version != "" {
-		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION=\"%s\"", a.Version))
+		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION=%s", shellQuote(a.Version)))
 	}
 
 	for k, v := range a.Env {
-		flags = append(flags, fmt.Sprintf("%s=\"%s\"", k, v))
+		flags = append(flags, fmt.Sprintf("%s=%s", k, shellQuote(v)))
 	}
 
 	return fmt.Sprintf("sudo %s bash %s/k3s-install.sh", strings.Join(flags, " "), a.BinDir)
 }
 
 func (a *Agent) dataDir() string {
-	if dir, ok := a.config["data_dir"].(string); ok && dir != "" {
+	if dir, ok := a.config["data-dir"].(string); ok && dir != "" {
 		return dir
 	}
 	return DATA_DIR

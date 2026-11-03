@@ -74,18 +74,32 @@ func (s *Server) WithOidc(config schemas.OidcConfig) {
 		"service-account-issuer=k3s",
 	}
 
-	api_server_args, ok := s.config["kube-apiserver-arg"]
-	if ok {
-		as_string_array, ok := api_server_args.([]string)
-		if ok {
-			s.config["kube-apiserver-arg"] = append(as_string_array, kube_api_server_args...)
-		}
-	} else {
-		s.config["kube-apiserver-arg"] = kube_api_server_args
-	}
+	existing := normalizeStringSlice(s.config["kube-apiserver-arg"])
+	s.config["kube-apiserver-arg"] = append(existing, kube_api_server_args...)
 
 	s.addFile("/etc/rancher/k3s/tls/sa-signer-pkcs8.pub", config.SigningPKCS8.ValueString())
 	s.addFile("/etc/rancher/k3s/tls/sa-signer.key", config.SigningKey.ValueString())
+}
+
+// normalizeStringSlice converts a config value into a []string. Values
+// unmarshalled from yaml into a map[any]any arrive as []any (never
+// []string), and k3s also accepts a single string for list-valued keys.
+// A nil or unrecognized value yields nil.
+func normalizeStringSlice(value any) []string {
+	switch v := value.(type) {
+	case []string:
+		return append([]string(nil), v...)
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			out = append(out, fmt.Sprintf("%v", item))
+		}
+		return out
+	case string:
+		return []string{v}
+	default:
+		return nil
+	}
 }
 
 // Preinstall implements K3sComponent.
@@ -111,15 +125,16 @@ func (s *Server) PreInstall(ctx context.Context, client ssh_client.SSHClient) er
 		return err
 	}
 
-	commands := append(
-		WriteFileCommands(s.BinDir+"/k3s-install.sh", installContents),
+	commands := []string{
 		fmt.Sprintf("sudo mkdir -p %s", CONFIG_DIR),
 		fmt.Sprintf("sudo mkdir -p %s", s.dataDir()),
-	)
+	}
 
 	if s.BinDir != BIN_DIR {
 		commands = append(commands, fmt.Sprintf("sudo mkdir -p %s", s.BinDir))
 	}
+
+	commands = append(commands, WriteFileCommands(s.BinDir+"/k3s-install.sh", installContents)...)
 
 	// Write config file
 	commands = append(commands, cfgCommands...)
@@ -267,7 +282,7 @@ func (s *Server) Refresh(ctx context.Context, client ssh_client.SSHClient) (exis
 func (s *Server) installCommand() string {
 	flags := []string{
 		"INSTALL_K3S_SKIP_START=true",
-		fmt.Sprintf("INSTALL_K3S_BIN_DIR=%s", s.BinDir),
+		fmt.Sprintf("INSTALL_K3S_BIN_DIR=%s", shellQuote(s.BinDir)),
 		fmt.Sprintf("INSTALL_K3S_EXEC='--config %s/config.yaml'", CONFIG_DIR),
 	}
 
@@ -278,18 +293,14 @@ func (s *Server) installCommand() string {
 
 	// Did version get set?
 	if s.Version != "" {
-		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION=\"%s\"", s.Version))
+		flags = append(flags, fmt.Sprintf("INSTALL_K3S_VERSION=%s", shellQuote(s.Version)))
 	}
 
 	for k, v := range s.Env {
-		flags = append(flags, fmt.Sprintf("%s=\"%s\"", k, v))
+		flags = append(flags, fmt.Sprintf("%s=%s", k, shellQuote(v)))
 	}
 
 	return fmt.Sprintf("sudo %s bash %s/k3s-install.sh", strings.Join(flags, " "), s.BinDir)
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 func k3sServiceExists(client ssh_client.SSHClient) (bool, error) {
@@ -301,7 +312,7 @@ func k3sServiceActive(client ssh_client.SSHClient) (bool, error) {
 }
 
 func (s *Server) dataDir() string {
-	if dir, ok := s.config["data_dir"].(string); ok && dir != "" {
+	if dir, ok := s.config["data-dir"].(string); ok && dir != "" {
 		return dir
 	}
 	return DATA_DIR
@@ -314,6 +325,7 @@ func (s *Server) getToken(client ssh_client.SSHClient) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	token = strings.TrimSpace(token)
 
 	// Look in env file
 	if token == "" {
@@ -321,27 +333,29 @@ func (s *Server) getToken(client ssh_client.SSHClient) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		token = env["K3S_TOKEN"]
+		token = strings.TrimSpace(env["K3S_TOKEN"])
 	}
 
-	token = strings.Trim(token, "\n")
+	if token == "" {
+		return "", fmt.Errorf("could not determine server token: not found in /var/lib/rancher/k3s/server/token or /etc/systemd/system/k3s.service.env")
+	}
 
 	return token, nil
 }
 
-// Retrieve server token.
+// Retrieve server environment file.
 func (s *Server) getServerEnv(client ssh_client.SSHClient) (map[string]string, error) {
-	file, err := client.ReadFile("/etc/systemd/system/k3s.service.env", false, true)
+	file, err := client.ReadFile("/etc/systemd/system/k3s.service.env", true, true)
 	if err != nil {
 		return nil, err
 	}
-	return godotenv.Unmarshal(file)
+	return godotenv.Unmarshal(strings.TrimSpace(file))
 }
 
 func syncExtraFiles(extraFiles map[string]string) (commands []string) {
 	for k, v := range extraFiles {
 		commands = append(commands,
-			fmt.Sprintf("sudo mkdir -p $(sudo realpath $(dirname %s))", k),
+			fmt.Sprintf("sudo mkdir -p $(dirname %s)", k),
 		)
 		commands = append(commands, WriteFileCommands(k, base64.StdEncoding.EncodeToString([]byte(v)))...)
 	}
