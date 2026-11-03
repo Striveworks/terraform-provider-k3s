@@ -97,7 +97,8 @@ output "cluster_auth_server" {
 
 ### Optional
 
-- `allow_empty` (Boolean) If this is true, it will allow a missing kubeconfig and set null to all outputs
+- `allow_empty` (Boolean) If this is true, a missing k3s install on the host sets null to all outputs instead of failing. Connection or other errors still fail.
+- `bin_dir` (String) Directory containing the k3s binary. Defaults to /usr/local/bin.
 - `hostname` (String) Override the api server's hostname
 
 ### Read-Only

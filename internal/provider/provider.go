@@ -57,8 +57,8 @@ func (p *K3sProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		return
 	}
 
-	resp.ResourceData = &K3sProvider{}
-	resp.DataSourceData = &K3sProvider{}
+	resp.ResourceData = p
+	resp.DataSourceData = p
 }
 
 // DataSources defines the data sources implemented in the provider.

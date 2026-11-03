@@ -71,7 +71,7 @@ func (k *K3sAgentResource) ImportState(ctx context.Context, req resource.ImportS
 		return
 	}
 
-	agent := k3s.Agent{}
+	agent := k3s.Agent{BinDir: binDir}
 	exists, active, err := agent.Refresh(ctx, sshClient)
 	if err != nil {
 		resp.Diagnostics.AddError("importing k3s agent", err.Error())

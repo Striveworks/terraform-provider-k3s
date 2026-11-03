@@ -20,9 +20,12 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/moby/go-archive"
 
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
@@ -33,6 +36,33 @@ import (
 // server that the CLI can connect to and interact with.
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
 	"k3s": providerserver.NewProtocol6WithError(NewDebugMode("")()),
+}
+
+func TestConfigurePassesProviderInstance(t *testing.T) {
+	ctx := context.Background()
+	p := &K3sProvider{DebugMode: true}
+
+	schemaResp := &provider.SchemaResponse{}
+	p.Schema(ctx, provider.SchemaRequest{}, schemaResp)
+
+	req := provider.ConfigureRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    tftypes.NewValue(tftypes.Object{AttributeTypes: map[string]tftypes.Type{}}, map[string]tftypes.Value{}),
+		},
+	}
+	resp := &provider.ConfigureResponse{}
+	p.Configure(ctx, req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Configure() diagnostics = %v", resp.Diagnostics)
+	}
+	if got, ok := resp.ResourceData.(*K3sProvider); !ok || got != p {
+		t.Errorf("ResourceData = %#v, want the configured provider instance", resp.ResourceData)
+	}
+	if got, ok := resp.DataSourceData.(*K3sProvider); !ok || got != p {
+		t.Errorf("DataSourceData = %#v, want the configured provider instance", resp.DataSourceData)
+	}
 }
 
 type DockerComposeTestHarness struct {

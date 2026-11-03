@@ -27,6 +27,7 @@ type K3sKubeConfigDataModel struct {
 	Hostname    types.String `tfsdk:"hostname"`
 	K3sURL      types.String `tfsdk:"k3s_url"`
 	AllowEmpty  types.Bool   `tfsdk:"allow_empty"`
+	BinDir      types.String `tfsdk:"bin_dir"`
 }
 
 func NewK3sKubeConfigData() datasource.DataSource {
@@ -67,7 +68,11 @@ func (k *K3sKubeConfigData) Schema(_ context.Context, req datasource.SchemaReque
 			"cluster_auth": schemas.ClusterAuth{}.DataSourceSchema(),
 			"allow_empty": schema.BoolAttribute{
 				Optional:            true,
-				MarkdownDescription: "If this is true, it will allow a missing kubeconfig and set null to all outputs",
+				MarkdownDescription: "If this is true, a missing k3s install on the host sets null to all outputs instead of failing. Connection or other errors still fail.",
+			},
+			"bin_dir": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "Directory containing the k3s binary. Defaults to /usr/local/bin.",
 			},
 			"kubeconfig": schema.StringAttribute{
 				Computed:            true,
@@ -111,15 +116,9 @@ func readKubeConfig(ctx context.Context, data *K3sKubeConfigDataModel) (types.St
 	}
 
 	id := types.StringValue(sshClient.Host())
-	server := k3s.Server{}
+	server := k3s.Server{BinDir: data.BinDir.ValueString()}
 	exists, _, err := server.Refresh(ctx, sshClient)
 	if err != nil {
-		if allowEmptyKubeConfig(data) {
-			tflog.Info(ctx, "allow_empty is true, returning null kubeconfig outputs")
-			setEmptyKubeConfigData(ctx, data, sshConfig)
-			return id, diags
-		}
-
 		diags.AddError("reading kubeconfig", err.Error())
 		return types.StringUnknown(), diags
 	}
