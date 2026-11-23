@@ -36,16 +36,17 @@ type K3sServerResource struct{}
 
 type ServerClientModel struct {
 	// Inputs
-	Version        types.String `tfsdk:"version"`
-	Auth           types.Object `tfsdk:"auth"`
-	BinDir         types.String `tfsdk:"bin_dir"`
-	K3sConfig      types.String `tfsdk:"config"`
-	K3sRegistry    types.String `tfsdk:"registry"`
-	Env            types.Map    `tfsdk:"env"`
-	HaConfig       types.Object `tfsdk:"highly_available"`
-	OidcConfig     types.Object `tfsdk:"oidc"`
-	BootstrapToken types.String `tfsdk:"bootstrap_token"`
-	Orphan         types.Bool   `tfsdk:"orphan"`
+	Version               types.String `tfsdk:"version"`
+	Auth                  types.Object `tfsdk:"auth"`
+	BinDir                types.String `tfsdk:"bin_dir"`
+	K3sConfig             types.String `tfsdk:"config"`
+	K3sRegistry           types.String `tfsdk:"registry"`
+	Env                   types.Map    `tfsdk:"env"`
+	HaConfig              types.Object `tfsdk:"highly_available"`
+	OidcConfig            types.Object `tfsdk:"oidc"`
+	ECRCredentialProvider types.Object `tfsdk:"ecr_credential_provider"`
+	BootstrapToken        types.String `tfsdk:"bootstrap_token"`
+	Orphan                types.Bool   `tfsdk:"orphan"`
 	// Outputs
 	Id          types.String `tfsdk:"id"`
 	Server      types.String `tfsdk:"server"`
@@ -98,22 +99,23 @@ func (s *K3sServerResource) ImportState(ctx context.Context, req resource.Import
 	}
 
 	data := ServerClientModel{
-		Version:        types.StringValue(server.Version),
-		Auth:           sshConfig.ToObject(ctx),
-		BinDir:         types.StringValue(binDir),
-		K3sConfig:      types.StringNull(),
-		K3sRegistry:    types.StringNull(),
-		Env:            types.MapNull(types.StringType),
-		HaConfig:       types.ObjectNull(schemas.HaConfig{}.AttributeTypes()),
-		OidcConfig:     types.ObjectNull(schemas.OidcConfig{}.AttributeTypes()),
-		BootstrapToken: types.StringNull(),
-		Id:             types.StringValue(sshClient.Host()),
-		Server:         clusterAuth.Server,
-		KubeConfig:     types.StringValue(server.KubeConfig),
-		Token:          types.StringValue(server.Token),
-		Active:         types.BoolValue(active),
-		ClusterAuth:    clusterAuth.ToObject(ctx),
-		Orphan:         types.BoolValue(false),
+		Version:               types.StringValue(server.Version),
+		Auth:                  sshConfig.ToObject(ctx),
+		BinDir:                types.StringValue(binDir),
+		K3sConfig:             types.StringNull(),
+		K3sRegistry:           types.StringNull(),
+		Env:                   types.MapNull(types.StringType),
+		HaConfig:              types.ObjectNull(schemas.HaConfig{}.AttributeTypes()),
+		OidcConfig:            types.ObjectNull(schemas.OidcConfig{}.AttributeTypes()),
+		ECRCredentialProvider: types.ObjectNull(schemas.EcrCredentialProvider{}.AttributeTypes()),
+		BootstrapToken:        types.StringNull(),
+		Id:                    types.StringValue(sshClient.Host()),
+		Server:                clusterAuth.Server,
+		KubeConfig:            types.StringValue(server.KubeConfig),
+		Token:                 types.StringValue(server.Token),
+		Active:                types.BoolValue(active),
+		ClusterAuth:           clusterAuth.ToObject(ctx),
+		Orphan:                types.BoolValue(false),
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -130,10 +132,11 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	sshConfig, haConfig, oidcConfig := validateServerAndReturn(ctx, data, &resp.Diagnostics)
+	sshConfig, haConfig, oidcConfig, ecrConfig := validateServerAndReturn(ctx, data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	ctx = withMaskedECR(ctx, ecrConfig)
 
 	sshClient, err := ssh_client.NewSSHClient(ctx, sshConfig)
 	if err != nil {
@@ -178,6 +181,11 @@ func (s *K3sServerResource) Create(ctx context.Context, req resource.CreateReque
 	if haConfig != nil {
 		tflog.Debug(ctx, "Running server with highly available config")
 		server.WithHa(*haConfig)
+	}
+
+	if ecrConfig != nil {
+		tflog.Debug(ctx, "Running server with ECR credential provider")
+		server.WithECRCredentialProvider(*ecrConfig)
 	}
 
 	if err := server.PreInstall(ctx, sshClient); err != nil {
@@ -259,6 +267,11 @@ func (s *K3sServerResource) Delete(ctx context.Context, req resource.DeleteReque
 
 	server := k3s.Server{
 		BinDir: data.BinDir.ValueString(),
+		Config: data.K3sConfig.ValueString(),
+	}
+	if err := server.Validate(ctx); err != nil {
+		resp.Diagnostics.AddError("validating k3s server", err.Error())
+		return
 	}
 
 	if err := server.Uninstall(ctx, sshClient); err != nil {
@@ -355,10 +368,11 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	sshConfig, haConfig, oidcConfig := validateServerAndReturn(ctx, data, &resp.Diagnostics)
+	sshConfig, haConfig, oidcConfig, ecrConfig := validateServerAndReturn(ctx, data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	ctx = withMaskedECR(ctx, ecrConfig)
 
 	sshClient, err := ssh_client.NewSSHClient(ctx, sshConfig)
 	if err != nil {
@@ -400,6 +414,11 @@ func (s *K3sServerResource) Update(ctx context.Context, req resource.UpdateReque
 	if haConfig != nil {
 		tflog.Debug(ctx, "Updating server with highly available config")
 		server.WithHa(*haConfig)
+	}
+
+	if ecrConfig != nil {
+		tflog.Debug(ctx, "Updating server with ECR credential provider")
+		server.WithECRCredentialProvider(*ecrConfig)
 	}
 
 	if err := server.PreInstall(ctx, sshClient); err != nil {
@@ -471,7 +490,7 @@ func (s *K3sServerResource) ValidateResource(ctx context.Context, req resource.V
 	validateServerAndReturn(ctx, data, &resp.Diagnostics)
 }
 
-func validateServerAndReturn(ctx context.Context, data ServerClientModel, d *diag.Diagnostics) (sshConfig ssh_client.SSHConfig, haConfig *schemas.HaConfig, oidcConfig *schemas.OidcConfig) {
+func validateServerAndReturn(ctx context.Context, data ServerClientModel, d *diag.Diagnostics) (sshConfig ssh_client.SSHConfig, haConfig *schemas.HaConfig, oidcConfig *schemas.OidcConfig, ecrConfig *schemas.EcrCredentialProvider) {
 
 	tflog.Trace(ctx, "Deserializing SSHConfig")
 	d.Append(data.Auth.As(ctx, &sshConfig, basetypes.ObjectAsOptions{})...)
@@ -514,6 +533,20 @@ func validateServerAndReturn(ctx context.Context, data ServerClientModel, d *dia
 		tflog.Trace(ctx, "Validating oidConfig")
 		if err := oidcConfig.Validate(); err != nil {
 			d.AddError("validating oidConfig", err.Error())
+			return
+		}
+	}
+
+	if !data.ECRCredentialProvider.IsNull() && !data.ECRCredentialProvider.IsUnknown() {
+		tflog.Trace(ctx, "Deserializing ECR credential provider")
+		d.Append(data.ECRCredentialProvider.As(ctx, &ecrConfig, basetypes.ObjectAsOptions{})...)
+		if d.HasError() {
+			return
+		}
+
+		tflog.Trace(ctx, "Validating ECR credential provider")
+		if err := ecrConfig.Validate(); err != nil {
+			d.AddError("validating ecr_credential_provider", err.Error())
 			return
 		}
 	}
@@ -626,9 +659,10 @@ func (s *K3sServerResource) Schema(context context.Context, resource resource.Sc
 					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
-			"highly_available": schemas.HaConfig{}.Schema(),
-			"oidc":             schemas.OidcConfig{}.Schema(),
-			"cluster_auth":     schemas.ClusterAuth{}.Schema(),
+			"highly_available":        schemas.HaConfig{}.Schema(),
+			"oidc":                    schemas.OidcConfig{}.Schema(),
+			"ecr_credential_provider": schemas.EcrCredentialProvider{}.Schema(),
+			"cluster_auth":            schemas.ClusterAuth{}.Schema(),
 		},
 	}
 }
@@ -685,6 +719,16 @@ func parseServerImportID(rawID string) (ssh_client.SSHConfig, string, error) {
 		HostKey:        optionalImportString(query.Get("host_key")),
 		HostKeyFile:    optionalImportString(query.Get("host_key_file")),
 	}, binDir, nil
+}
+
+func withMaskedECR(ctx context.Context, cfg *schemas.EcrCredentialProvider) context.Context {
+	if cfg == nil {
+		return ctx
+	}
+	if role := cfg.RoleARN.ValueString(); role != "" {
+		ctx = tflog.MaskMessageStrings(ctx, role)
+	}
+	return ctx
 }
 
 func optionalImportString(value string) types.String {

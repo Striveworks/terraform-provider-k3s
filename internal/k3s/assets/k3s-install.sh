@@ -124,7 +124,7 @@ verify_system() {
         HAS_OPENRC=true
         return
     fi
-    if [ -x /bin/systemctl ] || type systemctl > /dev/null 2>&1; then
+    if [ -x /bin/systemctl ] || command -v systemctl > /dev/null 2>&1; then
         HAS_SYSTEMD=true
         return
     fi
@@ -405,7 +405,7 @@ get_k3s_selinux_version() {
             fatal "Incorrect downloader executable '$DOWNLOADER'"
             ;;
     esac
-    for i in {1..3}; do
+    for i in 1 2 3; do
         set +e
         if [ "${rpm_channel}" = "testing" ]; then
             version=$(timeout 5 ${DOWNLOADER} ${DOWNLOADER_OPTS} https://api.github.com/repos/k3s-io/k3s-selinux/releases |  grep browser_download_url | awk '{ print $2 }' | grep -oE "[^\/]+${rpm_target}\.noarch\.rpm" | head -n 1)
@@ -605,13 +605,16 @@ setup_selinux() {
         rpm_target=sle
         rpm_site_infix=microos
         package_installer=zypper
-        if [ "${ID_LIKE:-}" = suse ] && ( [ "${VARIANT_ID:-}" = sle-micro ] || [ "${ID:-}" = sle-micro ] ); then
-            rpm_target=sle
+
+        # SleMicro 6.2 and SLEs 16 uses the same ID and same VERSION_ID in case the ID and VERSION_ID changes we will catch SLEMicro 6.2 using VARIANT_ID transactional
+        if [ "${ID:-}" = sles ] && [ -n "${VERSION_ID}" ] && [ "${VERSION_ID%%.*}" -ge 16 ]; then
             rpm_site_infix=slemicro
-            package_installer=zypper
+        elif [ "${VARIANT_ID:-}" = sle-micro ] || [ "${VARIANT_ID:-}" = transactional ] || [ "${ID:-}" = sle-micro ] || [ "${ID:-}" = sl-micro ] || [ "${ID:-}" = sle-micro-rancher ]; then
+            rpm_site_infix=slemicro
         fi
-    # cover any atomic fedora flavors using rpm-ostree
-    elif  { [ "${ID:-}" = fedora ] || [ "${ID_LIKE:-}" = fedora ]; } && [ -n "${OSTREE_VERSION:-}" ]; then
+
+    # cover coreos derivatives like flatcar, plus any atomic fedora flavors using rpm-ostree
+    elif [ "${ID_LIKE:-}" = coreos ] || { { [ "${ID:-}" = fedora ] || [ "${ID_LIKE:-}" = fedora ]; } && [ -n "${OSTREE_VERSION:-}" ]; }; then
         rpm_target=coreos
         rpm_site_infix=coreos
         package_installer=rpm-ostree
@@ -962,19 +965,51 @@ rm -rf /var/lib/kubelet
 rm -f ${BIN_DIR}/k3s
 rm -f ${KILLALL_K3S_SH}
 
-if type yum >/dev/null 2>&1; then
-    yum remove -y k3s-selinux
-    rm -f /etc/yum.repos.d/rancher-k3s-common*.repo
-elif type rpm-ostree >/dev/null 2>&1; then
-    rpm-ostree uninstall k3s-selinux
-    rm -f /etc/yum.repos.d/rancher-k3s-common*.repo
-elif type zypper >/dev/null 2>&1; then
+# uninstall k3s-selinux package if a compatible package manager is found
+zypper_remove_selinux_rpm() {
     uninstall_cmd="zypper remove -y k3s-selinux"
     if [ "\${TRANSACTIONAL_UPDATE=false}" != "true" ] && [ -x /usr/sbin/transactional-update ]; then
         uninstall_cmd="transactional-update --no-selfupdate -d run \$uninstall_cmd"
     fi
-    $SUDO \$uninstall_cmd
+    \$uninstall_cmd
+}
+dnf_remove_selinux_rpm() {
+    package_manager=dnf
+    # yum is only needed for rhel 7, which is EOM since 2024 anyway
+    if ! command -v dnf >/dev/null 2>&1; then
+        package_manager=yum
+    fi
+    \$package_manager remove -y k3s-selinux
+}
+rpm_ostree_uninstall_cmd="rpm-ostree uninstall --idempotent k3s-selinux"
+
+# shellcheck source=/dev/null
+[ -r /etc/os-release ] && . /etc/os-release
+
+if [ "\$(expr "\${ID_LIKE}" : ".*suse.*")" != 0 ]; then
+    zypper_remove_selinux_rpm
+# cover any standard & atomic rhel/centos/fedora + derivatives like amazon linux
+elif [ "\${ID:-}" = fedora ] || [ "\$(expr "\${ID_LIKE}" : ".*fedora.*\|.*rhel.*\|.*centos.*")" != 0 ]; then
+    if [ -n "\${OSTREE_VERSION:-}" ]; then
+        \$rpm_ostree_uninstall_cmd
+    else
+        dnf_remove_selinux_rpm
+    fi
+# if we did not match yet just check for package managers commonly found on selinux-enabled distributions
+elif command -v rpm-ostree >/dev/null 2>&1; then
+    \$rpm_ostree_uninstall_cmd
+elif command -v zypper >/dev/null 2>&1; then
+    zypper_remove_selinux_rpm
+elif command -v yum >/dev/null 2>&1; then
+    dnf_remove_selinux_rpm
+elif [ -d /usr/share/selinux ]; then
+    echo '[WARN] Automatic removal of "k3s-selinux" package not possible, please remove it manually.' >&2
+fi
+
+if [ -d /etc/zypp/repos.d ]; then
     rm -f /etc/zypp/repos.d/rancher-k3s-common*.repo
+elif [ -d /etc/yum.repos.d ]; then
+    rm -f /etc/yum.repos.d/rancher-k3s-common*.repo
 fi
 EOF
     $SUDO chmod 755 ${UNINSTALL_K3S_SH}
@@ -993,7 +1028,7 @@ create_env_file() {
     info "env: Creating environment file ${FILE_K3S_ENV}"
     $SUDO touch ${FILE_K3S_ENV}
     $SUDO chmod 0600 ${FILE_K3S_ENV}
-    sh -c export | while read x v; do echo $v; done | grep -E '^(K3S|CONTAINERD)_' | $SUDO tee ${FILE_K3S_ENV} >/dev/null
+    sh -c export | while read x v; do echo $v; done | grep -E '^(K3S|CONTAINERD|KINE)_' | $SUDO tee ${FILE_K3S_ENV} >/dev/null
     sh -c export | while read x v; do echo $v; done | grep -Ei '^(NO|HTTP|HTTPS)_PROXY' | $SUDO tee -a ${FILE_K3S_ENV} >/dev/null
 }
 

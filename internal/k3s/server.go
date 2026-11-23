@@ -31,6 +31,7 @@ type Server struct {
 	// correct formatting and config merging
 	config   map[any]any
 	registry map[any]any
+	ecr      *ecrInstall
 }
 
 func (s *Server) Validate(ctx context.Context) error {
@@ -88,6 +89,15 @@ func (s *Server) WithOidc(config schemas.OidcConfig) {
 	s.addFile("/etc/rancher/k3s/tls/sa-signer.key", config.SigningKey.ValueString())
 }
 
+func (s *Server) WithECRCredentialProvider(config schemas.EcrCredentialProvider) {
+	install := newECRInstall(config)
+	s.ecr = &install
+	if s.config == nil {
+		s.config = map[any]any{}
+	}
+	appendECRKubeletArgs(s.config)
+}
+
 // Preinstall implements K3sComponent.
 func (s *Server) PreInstall(ctx context.Context, client ssh_client.SSHClient) error {
 	if err := client.WaitForReady(); err != nil {
@@ -120,6 +130,19 @@ func (s *Server) PreInstall(ctx context.Context, client ssh_client.SSHClient) er
 	if s.BinDir != BIN_DIR {
 		commands = append(commands, fmt.Sprintf("sudo mkdir -p %s", s.BinDir))
 	}
+
+	// Install or remove the credential provider before rewriting kubelet config.
+	ecrCommands, err := ecrHelperCommands(s.BinDir, s.ecr)
+	if err != nil {
+		return err
+	}
+	commands = append(commands, ecrCommands...)
+
+	manifestCommands, err := ecrServerManifestCommands(s.BinDir, s.dataDir(), s.ecr)
+	if err != nil {
+		return err
+	}
+	commands = append(commands, manifestCommands...)
 
 	// Write config file
 	commands = append(commands, cfgCommands...)
@@ -200,14 +223,15 @@ func (s *Server) Uninstall(ctx context.Context, client ssh_client.SSHClient) err
 	if err != nil {
 		return err
 	}
-	if !exists {
-		tflog.Debug(ctx, "k3s service is already absent")
-		return nil
-	}
 
 	binDir := s.BinDir
 	if binDir == "" {
 		binDir = BIN_DIR
+	}
+
+	if !exists {
+		tflog.Debug(ctx, "k3s service is already absent")
+		return s.cleanupECR(client, binDir)
 	}
 
 	if err := client.RunStream([]string{
@@ -224,7 +248,16 @@ func (s *Server) Uninstall(ctx context.Context, client ssh_client.SSHClient) err
 		return fmt.Errorf("k3s service still exists after uninstall")
 	}
 
-	return nil
+	return s.cleanupECR(client, binDir)
+}
+
+func (s *Server) cleanupECR(client ssh_client.SSHClient, binDir string) error {
+	commands, err := ecrHelperCommands(binDir, nil)
+	if err != nil {
+		return err
+	}
+	manifestCommands := ecrRemoveManifestCommands(binDir, s.dataDir(), false)
+	return client.RunStream(append(commands, manifestCommands...))
 }
 
 func (s *Server) Refresh(ctx context.Context, client ssh_client.SSHClient) (exists bool, active bool, err error) {

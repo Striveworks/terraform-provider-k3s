@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ecr-credential-helper
+  namespace: kube-system
+  annotations:
+    "eks.amazonaws.com/role-arn": "${ECR_READER_ROLE_ARN}"
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ecr-sa-token
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: ecr-sa-token
+  template:
+    metadata:
+      labels:
+        app: ecr-sa-token
+    spec:
+      serviceAccountName: ecr-credential-helper
+      containers:
+        - name: sync
+          image: "${ECR_READER_IMAGE}"
+          command:
+            - sh
+            - -c
+            - |
+              #!/bin/sh          
+              while true; do
+                tmp=/host/${ECR_TOKEN_NAME}.tmp
+                cp /var/run/secrets/eks.amazonaws.com/serviceaccount/token "$tmp"
+                chmod 600 "$tmp"
+                mv "$tmp" /host/${ECR_TOKEN_NAME}
+                sleep 300
+              done
+          env:
+            - name: AWS_ROLE_ARN
+              value: "${ECR_READER_ROLE_ARN}"
+            - name: AWS_WEB_IDENTITY_TOKEN_FILE
+              value: "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
+          readinessProbe:
+            exec:
+              command:
+                - test
+                - -s
+                - /host/${ECR_TOKEN_NAME}
+            periodSeconds: 5
+          volumeMounts:
+            - name: token
+              mountPath: /host
+            - name: aws-iam-token
+              mountPath: /var/run/secrets/eks.amazonaws.com/serviceaccount
+              readOnly: true
+      volumes:
+        - name: token
+          hostPath:
+            path: "${ECR_TOKEN_DIR}"
+            type: DirectoryOrCreate
+        - name: aws-iam-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: sts.amazonaws.com
+                  expirationSeconds: 86400
+                  path: token
