@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
 	"striveworks.us/terraform-provider-k3s/internal/k3s"
+	"striveworks.us/terraform-provider-k3s/internal/schemas"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
@@ -33,15 +34,16 @@ type K3sAgentResource struct{}
 
 type AgentClientModel struct {
 	// Inputs
-	Version     types.String `tfsdk:"version"`
-	Auth        types.Object `tfsdk:"auth"`
-	BinDir      types.String `tfsdk:"bin_dir"`
-	K3sConfig   types.String `tfsdk:"config"`
-	K3sRegistry types.String `tfsdk:"registry"`
-	Env         types.Map    `tfsdk:"env"`
-	Server      types.String `tfsdk:"server"`
-	Token       types.String `tfsdk:"token"`
-	Orphan      types.Bool   `tfsdk:"orphan"`
+	Version               types.String `tfsdk:"version"`
+	Auth                  types.Object `tfsdk:"auth"`
+	BinDir                types.String `tfsdk:"bin_dir"`
+	K3sConfig             types.String `tfsdk:"config"`
+	K3sRegistry           types.String `tfsdk:"registry"`
+	Env                   types.Map    `tfsdk:"env"`
+	Server                types.String `tfsdk:"server"`
+	Token                 types.String `tfsdk:"token"`
+	ECRCredentialProvider types.Object `tfsdk:"ecr_credential_provider"`
+	Orphan                types.Bool   `tfsdk:"orphan"`
 
 	// Outputs
 	Id     types.String `tfsdk:"id"`
@@ -83,17 +85,18 @@ func (k *K3sAgentResource) ImportState(ctx context.Context, req resource.ImportS
 	}
 
 	data := AgentClientModel{
-		Version:     types.StringValue(agent.Version),
-		Auth:        sshConfig.ToObject(ctx),
-		BinDir:      types.StringValue(binDir),
-		K3sConfig:   types.StringNull(),
-		K3sRegistry: types.StringNull(),
-		Env:         types.MapNull(types.StringType),
-		Id:          types.StringValue(sshClient.Host()),
-		Server:      types.StringValue(agent.Server),
-		Token:       types.StringValue(agent.Token),
-		Active:      types.BoolValue(active),
-		Orphan:      types.BoolValue(false),
+		Version:               types.StringValue(agent.Version),
+		Auth:                  sshConfig.ToObject(ctx),
+		BinDir:                types.StringValue(binDir),
+		K3sConfig:             types.StringNull(),
+		K3sRegistry:           types.StringNull(),
+		Env:                   types.MapNull(types.StringType),
+		Id:                    types.StringValue(sshClient.Host()),
+		Server:                types.StringValue(agent.Server),
+		Token:                 types.StringValue(agent.Token),
+		ECRCredentialProvider: types.ObjectNull(schemas.EcrCredentialProvider{}.AttributeTypes()),
+		Active:                types.BoolValue(active),
+		Orphan:                types.BoolValue(false),
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -137,10 +140,11 @@ func (k *K3sAgentResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	sshConfig := validateAgentAndReturn(ctx, data, &resp.Diagnostics)
+	sshConfig, ecrConfig := validateAgentAndReturn(ctx, data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	ctx = withMaskedECR(ctx, ecrConfig)
 
 	sshClient, err := ssh_client.NewSSHClient(ctx, sshConfig)
 	if err != nil {
@@ -174,6 +178,11 @@ func (k *K3sAgentResource) Create(ctx context.Context, req resource.CreateReques
 	if err := agent.Validate(ctx); err != nil {
 		resp.Diagnostics.AddError("validating k3s agent", err.Error())
 		return
+	}
+
+	if ecrConfig != nil {
+		tflog.Debug(ctx, "Running agent with ECR credential provider")
+		agent.WithECRCredentialProvider(*ecrConfig)
 	}
 
 	if err := agent.PreInstall(ctx, sshClient); err != nil {
@@ -365,6 +374,7 @@ func (k *K3sAgentResource) Schema(ctx context.Context, req resource.SchemaReques
 					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
+			"ecr_credential_provider": schemas.EcrCredentialProvider{}.Schema(),
 		},
 	}
 }
@@ -379,10 +389,11 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	sshConfig := validateAgentAndReturn(ctx, data, &resp.Diagnostics)
+	sshConfig, ecrConfig := validateAgentAndReturn(ctx, data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	ctx = withMaskedECR(ctx, ecrConfig)
 
 	sshClient, err := ssh_client.NewSSHClient(ctx, sshConfig)
 	if err != nil {
@@ -418,6 +429,11 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
+	if ecrConfig != nil {
+		tflog.Debug(ctx, "Updating agent with ECR credential provider")
+		agent.WithECRCredentialProvider(*ecrConfig)
+	}
+
 	if err := agent.PreInstall(ctx, sshClient); err != nil {
 		resp.Diagnostics.AddError("running k3s agent preinstall", err.Error())
 		return
@@ -442,7 +458,7 @@ func (k *K3sAgentResource) Update(ctx context.Context, req resource.UpdateReques
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func validateAgentAndReturn(ctx context.Context, data AgentClientModel, d *diag.Diagnostics) (sshConfig ssh_client.SSHConfig) {
+func validateAgentAndReturn(ctx context.Context, data AgentClientModel, d *diag.Diagnostics) (sshConfig ssh_client.SSHConfig, ecrConfig *schemas.EcrCredentialProvider) {
 	tflog.Trace(ctx, "Deserializing SSHConfig")
 	d.Append(data.Auth.As(ctx, &sshConfig, basetypes.ObjectAsOptions{})...)
 	if d.HasError() {
@@ -471,6 +487,20 @@ func validateAgentAndReturn(ctx context.Context, data AgentClientModel, d *diag.
 	if !data.Server.IsUnknown() && data.Server.ValueString() == "" {
 		d.AddError("validating server", "server cannot be an empty string")
 		return
+	}
+
+	if !data.ECRCredentialProvider.IsNull() && !data.ECRCredentialProvider.IsUnknown() {
+		tflog.Trace(ctx, "Deserializing ECR credential provider")
+		d.Append(data.ECRCredentialProvider.As(ctx, &ecrConfig, basetypes.ObjectAsOptions{})...)
+		if d.HasError() {
+			return
+		}
+
+		tflog.Trace(ctx, "Validating ECR credential provider")
+		if err := ecrConfig.Validate(); err != nil {
+			d.AddError("validating ecr_credential_provider", err.Error())
+			return
+		}
 	}
 
 	return

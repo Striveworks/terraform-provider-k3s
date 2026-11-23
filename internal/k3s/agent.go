@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/joho/godotenv"
 	"go.yaml.in/yaml/v2"
+	"striveworks.us/terraform-provider-k3s/internal/schemas"
 	"striveworks.us/terraform-provider-k3s/internal/ssh_client"
 )
 
@@ -28,6 +29,7 @@ type Agent struct {
 	// correct formatting and config merging
 	config   map[any]any
 	registry map[any]any
+	ecr      *ecrInstall
 }
 
 // Install implements [K3sComponent].
@@ -84,6 +86,12 @@ func (a *Agent) PreInstall(ctx context.Context, client ssh_client.SSHClient) err
 	}
 
 	commands = append(commands, WriteFileCommands(a.BinDir+"/k3s-install.sh", installContents)...)
+	// Install or remove the credential provider before rewriting kubelet config.
+	ecrCommands, err := ecrHelperCommands(a.BinDir, a.ecr)
+	if err != nil {
+		return err
+	}
+	commands = append(commands, ecrCommands...)
 	commands = append(commands, cfgCommands...)
 
 	if len(regCommands) > 0 {
@@ -148,14 +156,15 @@ func (a *Agent) Uninstall(ctx context.Context, client ssh_client.SSHClient) erro
 	if err != nil {
 		return err
 	}
-	if !exists {
-		tflog.Debug(ctx, "k3s-agent service is already absent")
-		return nil
-	}
 
 	binDir := a.BinDir
 	if binDir == "" {
 		binDir = BIN_DIR
+	}
+
+	if !exists {
+		tflog.Debug(ctx, "k3s-agent service is already absent")
+		return runECRHelper(client, binDir, nil)
 	}
 
 	if err := client.RunStream([]string{
@@ -172,7 +181,7 @@ func (a *Agent) Uninstall(ctx context.Context, client ssh_client.SSHClient) erro
 		return fmt.Errorf("k3s-agent service still exists after uninstall")
 	}
 
-	return nil
+	return runECRHelper(client, binDir, nil)
 }
 
 func (a *Agent) Validate(ctx context.Context) error {
@@ -192,6 +201,15 @@ func (a *Agent) Validate(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (a *Agent) WithECRCredentialProvider(config schemas.EcrCredentialProvider) {
+	install := newECRInstall(config)
+	a.ecr = &install
+	if a.config == nil {
+		a.config = map[any]any{}
+	}
+	appendECRKubeletArgs(a.config)
 }
 
 func (a *Agent) Update(ctx context.Context, client ssh_client.SSHClient) error {

@@ -11,6 +11,7 @@ description: |-
 
 {{ .Description | trimspace }}
 
+Set `ecr_credential_provider` to install the kubelet ECR credential provider before k3s starts. Terraform downloads the binary to `/usr/local/libexec/ecr-credential-provider`, writes `/etc/rancher/k3s/credential-provider-config.yaml`, and adds the kubelet image credential provider arguments. Hosts with `fapolicyd` also get an execution rule and a daemon reload. The server also writes `ecr-helper.yaml` to `<data-dir>/server/manifests` with `envsubst`, where k3s deploys a DaemonSet that projects the web identity token onto each node. Removing the block deletes those installed files and runs `kubectl delete` on the manifest, because deleting the file alone leaves the AddOn resources in the cluster. The node needs `envsubst` from gettext. The default binary is the linux/amd64 v1.2.0 release; override `url` and `checksum` together for another architecture or version.
 
 ## Example Usage
 {{ $examples := (split "basic/ha/oidc" "/" ) }}
@@ -62,7 +63,7 @@ Supported query parameters:
 
 The import ID must include the SSH user and host, and may include the SSH port. Imported credentials are stored in Terraform state as part of `auth`, so treat import IDs with the same care as normal Terraform configuration and be mindful of shell history.
 
-Install inputs that are not reliably discoverable from the node, such as `config`, `registry`, `env`, `highly_available`, `oidc`, and `version`, are imported as null or default values. Add them to configuration before planning future changes if Terraform should continue managing those settings.
+Install inputs that are not reliably discoverable from the node, such as `config`, `registry`, `env`, `highly_available`, `oidc`, `ecr_credential_provider`, and `version`, are imported as null or default values. Add them to configuration before planning future changes if Terraform should continue managing those settings.
 
 {{ .SchemaMarkdown | trimspace }}
 {{- if or .HasImport .HasImportIDConfig .HasImportIdentityConfig }}

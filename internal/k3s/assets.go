@@ -11,7 +11,21 @@ var assets embed.FS
 
 // The install script.
 func ReadInstallScript() (string, error) {
-	script, err := assets.ReadFile("assets/k3s-install.sh")
+	return readAssetBase64("assets/k3s-install.sh")
+}
+
+// The ECR credential provider helper script.
+func ReadECRHelperScript() (string, error) {
+	return readAssetBase64("assets/ecr-helper.sh")
+}
+
+// The ECR credential provider manifest template.
+func ReadECRHelperManifest() (string, error) {
+	return readAssetBase64("assets/ecr-helper.yaml")
+}
+
+func readAssetBase64(name string) (string, error) {
+	script, err := assets.ReadFile(name)
 	if err != nil {
 		return "", err
 	}

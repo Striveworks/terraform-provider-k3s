@@ -90,6 +90,7 @@ resource "k3s_agent" "main" {
 
 - `bin_dir` (String) Value of a path used to put the k3s binary
 - `config` (String) K3s agent config
+- `ecr_credential_provider` (Attributes) Install the ECR kubelet image credential provider. Downloads the binary to /usr/local/libexec/ecr-credential-provider, writes /etc/rancher/k3s/credential-provider-config.yaml, and adds the kubelet image-credential-provider arguments. Hosts with fapolicyd also receive an execution rule. Servers also write ecr-helper.yaml to the k3s server manifests directory, where k3s deploys a DaemonSet that projects the web identity token onto each node. (see [below for nested schema](#nestedatt--ecr_credential_provider))
 - `env` (Map of String, Sensitive) Extra environment variables to pass to the process
 - `orphan` (Boolean) Remove the resource from Terraform state without running the k3s agent uninstall script during deletion.
 - `registry` (String) K3s agent registry
@@ -116,3 +117,18 @@ Optional:
 - `port` (Number) SSH Port
 - `private_key` (String, Sensitive) Inline private key in PEM format
 - `private_key_file` (String, Sensitive) Path to pem file
+
+
+<a id="nestedatt--ecr_credential_provider"></a>
+### Nested Schema for `ecr_credential_provider`
+
+Required:
+
+- `role_arn` (String) IAM role ARN passed to the credential provider as AWS_ROLE_ARN.
+
+Optional:
+
+- `checksum` (String) sha256 checksum of the credential provider binary.
+- `image` (String) The image passing the token to the binary. The default image is a public harnded chainguard image.
+- `token_file` (String) Absolute path passed as AWS_WEB_IDENTITY_TOKEN_FILE. The server manifest DaemonSet writes this file on each node.
+- `url` (String) URL of the ecr-credential-provider binary. Defaults to the linux/amd64 v1.2.0 release. Override url and checksum together for another architecture or version.
