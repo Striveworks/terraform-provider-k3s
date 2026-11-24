@@ -204,6 +204,8 @@ func TestECRManifestEnvsubst(t *testing.T) {
 		`path: "/var/run/ecr"`,
 		"/host/my-token",
 		`"$tmp"`,
+		"runAsUser: 0",
+		"type: spc_t",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("rendered manifest missing %q\n%s", want, rendered)
