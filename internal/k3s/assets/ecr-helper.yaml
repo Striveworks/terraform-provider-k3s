@@ -24,11 +24,15 @@ spec:
       containers:
         - name: sync
           image: "${ECR_READER_IMAGE}"
-          # The hostPath directory is root-owned. Chainguard images default to a
-          # non-root user, which cannot write the token file there.
+          # The hostPath directory is root-owned, and the k3s-selinux policy labels
+          # /var/lib/rancher/k3s as container_var_lib_t, which container_t cannot write.
+          # Chainguard images default to a non-root user. Run as root in spc_t so the
+          # token file can be written without relabeling the host path on every node.
           securityContext:
             runAsUser: 0
             runAsGroup: 0
+            seLinuxOptions:
+              type: spc_t
           command:
             - sh
             - -c
